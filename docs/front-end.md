@@ -1,5 +1,7 @@
 # The transcriber's front end: harmonic CQT
 
+![HOW IT HEARS: harmonic constant-Q, 8 harmonics x 264 bins, every 256 samples](images/banner-front-end.jpg)
+
 `core/src/hcqt.cpp`. The training code must compute exactly this; the T1 parity check compares
 the two on fixed clips. Settings come from the model's GGUF metadata
 ([gguf-metadata.md](./gguf-metadata.md)); defaults in brackets.
@@ -22,6 +24,13 @@ Harmonic channel `h` (from `harmonics`, [0.5, 1, 2, 3, 4, 5, 6, 7]) reads bin
 `k + round(B × log2 h)` of one extended transform, so channel h at bin k is the energy at
 `h × f(k)`. Extended bins above `top_fraction × sample_rate / 2` [0.9 × Nyquist] are not
 computed and read as 0.
+
+Why stack harmonics: a pitched note puts energy at f, 2f, 3f and up. Channel h at the note's own
+bin reads the energy at h × f, so every whole-number channel lights the same bin, and the model
+sees a pitch as one bright column through the stack instead of a pattern spread across the
+spectrum. The picture is computed from the layout above for A2 (110 Hz) with eight partials:
+
+![One note, eight channels: A2 lights bin 73 in channels 1 to 7, while its other partials land at different bins in each channel](images/hcqt-channels.jpg)
 
 ## Kernels
 

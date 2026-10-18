@@ -110,21 +110,16 @@ target_compile_definitions(backtrack-core PUBLIC BACKTRACK_VERSION="${PROJECT_VE
 target_link_libraries(backtrack-core PUBLIC ggml)
 
 # ---------------------------------------------------------------------------
-# server/: the shared HTTP layer, and ui/: the page it serves, embedded at
-# configure time (editing ui/index.html re-runs configure).
+# server/: the shared HTTP layer, and ui/: the page it serves (HTML, CSS, JS
+# and fonts), embedded at configure time (editing a file in ui/ re-runs
+# configure).
 # ---------------------------------------------------------------------------
 add_library(backtrack-server STATIC server/src/server.cpp)
 target_include_directories(backtrack-server PUBLIC server/include)
 target_link_libraries(backtrack-server PUBLIC backtrack-core backtrack-json PRIVATE backtrack-httplib)
 
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/ui/index.html)
-file(READ ${CMAKE_CURRENT_SOURCE_DIR}/ui/index.html BACKTRACK_PAGE_HEX HEX)
-string(LENGTH "${BACKTRACK_PAGE_HEX}" BACKTRACK_PAGE_HEX_LEN)
-string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," BACKTRACK_PAGE_BYTES "${BACKTRACK_PAGE_HEX}")
-string(REGEX REPLACE "((0x[0-9a-f][0-9a-f],){32})" "\\1\n" BACKTRACK_PAGE_BYTES "${BACKTRACK_PAGE_BYTES}")
-file(WRITE ${CMAKE_BINARY_DIR}/generated/backtrack_page.h.tmp
-"// Generated from ui/index.html by CMakeLists.txt. Do not edit.\n#pragma once\nnamespace backtrack {\ninline const unsigned char kPageBytes[] = {\n${BACKTRACK_PAGE_BYTES}\n0x00};\ninline const char * const kPageHtml = reinterpret_cast<const char *>(kPageBytes);\n} // namespace backtrack\n")
-configure_file(${CMAKE_BINARY_DIR}/generated/backtrack_page.h.tmp ${CMAKE_BINARY_DIR}/generated/backtrack_page.h COPYONLY)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedPage.cmake)
+backtrack_embed_page(${CMAKE_CURRENT_SOURCE_DIR}/ui ${CMAKE_BINARY_DIR}/generated/backtrack_page.h)
 add_library(backtrack-ui INTERFACE)
 target_include_directories(backtrack-ui INTERFACE ${CMAKE_BINARY_DIR}/generated)
 
@@ -145,4 +140,9 @@ if (BACKTRACK_BUILD_TESTS)
     target_include_directories(backtrack-tests PRIVATE apps/surveil)
     target_link_libraries(backtrack-tests PRIVATE backtrack-core backtrack-json)
     add_test(NAME backtrack-tests COMMAND backtrack-tests)
+    # ui/ carries copies of the design kit (design/AGENT-SPEC.md, section 9); keep them identical.
+    foreach(kit backtrack.css waveform.js)
+        add_test(NAME ui-matches-design-${kit}
+                 COMMAND ${CMAKE_COMMAND} -E compare_files ${CMAKE_CURRENT_SOURCE_DIR}/design/${kit} ${CMAKE_CURRENT_SOURCE_DIR}/ui/${kit})
+    endforeach()
 endif()

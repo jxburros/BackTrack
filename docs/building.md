@@ -1,5 +1,7 @@
 # Building
 
+![BUILD IT. Three lines: npm ci, cmake -B build, cmake --build build -j](images/banner-building.jpg)
+
 Needs CMake 3.16+, a C++17 compiler, Git, and Node.js/npm (only to fetch ggml). Python 3 runs
 the smoke test.
 
@@ -47,11 +49,15 @@ For a portable CPU build (CI, releases) add `-DGGML_NATIVE=OFF`.
 
 ## Layout
 
+![How it fits: core/, the two apps, and the three ways in (CLI, page, Song Deck)](images/architecture.jpg)
+
+
 ```
 core/            audio decode (WAV/FLAC/MP3 via dr_libs), resampling, FFT, harmonic CQT,
                  music theory, MIDI writer, ggml/GGUF helpers, progress and cancellation
 server/          shared HTTP layer (bridge rules, /health /cancel, auth, CORS, job queue)
-ui/              the page both binaries serve (embedded at configure time)
+ui/              the page both binaries serve, with its CSS, scripts and fonts (embedded at configure
+                 time by cmake/EmbedPage.cmake; the look is design/AGENT-SPEC.md)
 apps/surveil     transcriber: model graph, placeholder models, note picking, CLI and server
 apps/explode     separator (S0)
 wasm/            WebAssembly builds (T4)
@@ -59,4 +65,6 @@ training/        training code (T1)
 third_party/     cpp-httplib, nlohmann/json, dr_libs
 tests/           unit tests
 scripts/         vendoring, test audio, smoke test
+design/          the design language: boards, tokens, the reference CSS, and the scripts that
+                 draw the boards and these docs' pictures (design/source/, with Vixl)
 ```

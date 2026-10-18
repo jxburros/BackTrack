@@ -23,6 +23,11 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
+void replace_first(std::string & s, const std::string & from, const std::string & to) {
+    size_t at = s.find(from);
+    if (at != std::string::npos) s.replace(at, from.size(), to);
+}
+
 std::string lower(std::string s) {
     for (char & c : s) c = char(std::tolower(static_cast<unsigned char>(c)));
     return s;
@@ -104,6 +109,7 @@ struct BridgeServer::Impl {
     std::atomic<bool> loading{false};
     std::atomic<bool> stopping{false};
     std::vector<std::string> origins;
+    std::map<std::string, std::string> page_types;   // "/path" -> Content-Type
     int port = 0;
 
     bool origin_allowed(const std::string & origin, const httplib::Request & req) const {
@@ -203,7 +209,7 @@ BridgeServer::BridgeServer(ServerOptions options) : impl_(new Impl()) {
             return httplib::Server::HandlerResponse::Handled;
         }
         bool open = (req.method == "GET" || req.method == "HEAD") &&
-                    (req.path == "/health" || req.path == "/" || req.path == "/index.html" || req.path == "/favicon.ico");
+                    (req.path == "/health" || req.path == "/" || req.path == "/favicon.ico" || s.page_types.count(req.path));
         if (!open && !s.authorized(req)) {
             res.set_header("WWW-Authenticate", "Bearer realm=\"backtrack\"");
             send_error(res, 401, "missing or invalid bearer token (Authorization: Bearer <token>)");
@@ -251,15 +257,23 @@ BridgeServer::BridgeServer(ServerOptions options) : impl_(new Impl()) {
         res.set_header("X-Cancelled-Jobs", std::to_string(n));
     });
 
-    if (!s.opt.page_html.empty()) {
-        auto page = [this](const httplib::Request &, httplib::Response & res) {
-            res.set_header("Content-Security-Policy",
-                           "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
-                           "img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'");
-            res.set_content(impl_->opt.page_html, "text/html; charset=utf-8");
+    for (PageFile & f : s.opt.page) {
+        if (f.path == "index.html") {
+            replace_first(f.body, "data-theme=\"xerox-riot\"", "data-theme=\"" + (s.opt.theme.empty() ? "xerox-riot" : s.opt.theme) + "\"");
+            replace_first(f.body, "data-app=\"\"", "data-app=\"" + s.opt.app + "\"");
+        }
+        s.page_types["/" + f.path] = f.type;
+    }
+    for (const PageFile & f : s.opt.page) {
+        auto serve = [&f](const httplib::Request &, httplib::Response & res) {
+            if (f.path == "index.html")
+                res.set_header("Content-Security-Policy",
+                               "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+                               "img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'");
+            res.set_content(f.body, f.type);
         };
-        s.svr.Get("/", page);
-        s.svr.Get("/index.html", page);
+        s.svr.Get("/" + f.path, serve);
+        if (f.path == "index.html") s.svr.Get("/", serve);
     }
     s.svr.Get("/favicon.ico", [](const httplib::Request &, httplib::Response & res) { res.status = 204; });
 }

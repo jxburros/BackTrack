@@ -1,407 +1,151 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-app="" data-theme="xerox-riot">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BackTrack</title>
-<style>
-  :root {
-    --bg: #f6f5f2; --panel: #ffffff; --text: #1d1d1f; --muted: #6b6b70; --line: #dedcd6;
-    --accent: #2f6fed; --accent-text: #ffffff; --ok: #1f8a4c; --warn: #b26a00; --err: #c0392b;
-    --roll-bg: #fbfaf8; --roll-grid: #ecebe6; --roll-c: #e2e0da; --note: #2f6fed; --playhead: #c0392b;
-    --radius: 10px;
-    color-scheme: light dark;
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #141416; --panel: #1d1d20; --text: #ececee; --muted: #9b9ba3; --line: #2e2e33;
-      --accent: #6b9bff; --accent-text: #0d1220; --ok: #4cc584; --warn: #f0a845; --err: #ff6b5e;
-      --roll-bg: #18181b; --roll-grid: #232327; --roll-c: #2b2b30; --note: #6b9bff; --playhead: #ff6b5e;
-    }
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); }
-  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
-  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
-  h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
-  h1 span { color: var(--muted); font-weight: 500; }
-  .meta { color: var(--muted); font-size: 13px; }
-  .pill { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
-  .pill.ok { color: var(--ok); border-color: currentColor; }
-  .pill.warn { color: var(--warn); border-color: currentColor; }
-  .pill.err { color: var(--err); border-color: currentColor; }
-  section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
-  #drop { border: 2px dashed var(--line); border-radius: var(--radius); padding: 28px 16px; text-align: center; cursor: pointer; color: var(--muted); }
-  #drop.over { border-color: var(--accent); color: var(--text); }
-  #drop strong { color: var(--text); }
-  audio { width: 100%; margin-top: 12px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-top: 4px; }
-  label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
-  label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--text); padding-top: 18px; }
-  input, select { font: inherit; font-size: 14px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; min-width: 0; }
-  input[type=checkbox] { width: 16px; height: 16px; }
-  .actions { display: flex; gap: 10px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
-  button { font: inherit; font-size: 14px; border-radius: 8px; padding: 8px 16px; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; }
-  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
-  button:disabled { opacity: 0.5; cursor: default; }
-  button:focus-visible, input:focus-visible, select:focus-visible, #drop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  progress { flex: 1; min-width: 120px; height: 8px; accent-color: var(--accent); }
-  #status { font-size: 13px; color: var(--muted); }
-  #status.err { color: var(--err); }
-  #summary { display: flex; gap: 18px; flex-wrap: wrap; font-size: 14px; margin-bottom: 12px; }
-  #summary b { font-weight: 600; }
-  .roll-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--roll-bg); }
-  canvas { display: block; }
-  .hidden { display: none !important; }
-  .note-tip { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 1.2em; }
-  .placeholder-note { font-size: 13px; color: var(--warn); margin: 0 0 10px; }
-</style>
+<script>
+  // Before first paint: the server sets the app's theme; light mode (bt-theme) or ?theme= overrides it.
+  (() => {
+    const html = document.documentElement;
+    html.dataset.appTheme = html.dataset.theme;
+    let pick = '';
+    try { pick = localStorage.getItem('bt-theme') || ''; } catch {}
+    const q = new URLSearchParams(location.search).get('theme');
+    if (q) pick = q;
+    if (['xerox-riot', 'blast-zone', 'wiretap'].includes(pick)) html.dataset.theme = pick;
+  })();
+</script>
+<link rel="stylesheet" href="fonts/fonts.css">
+<link rel="stylesheet" href="backtrack.css">
+<link rel="stylesheet" href="app.css">
 </head>
 <body>
-<main>
-  <header>
-    <h1 id="title">BackTrack</h1>
-    <span class="pill" id="health">connecting…</span>
-    <span class="meta" id="meta"></span>
-  </header>
-
-  <section id="auth" class="hidden">
-    <label>API key (this server requires one)
-      <input id="token" type="password" autocomplete="off" placeholder="the key the server was started with">
-    </label>
-  </section>
-
-  <section id="unsupported" class="hidden">
-    <p>This page does not have a view for this app yet.</p>
-  </section>
-
-  <div id="surveil" class="hidden">
-    <section>
-      <div id="drop" tabindex="0" role="button" aria-label="Choose an audio file">
-        <strong>Drop an audio file</strong> or click to choose one<br>
-        <span class="meta">WAV, FLAC or MP3</span>
-      </div>
-      <input id="file" type="file" accept="audio/*,.wav,.flac,.mp3" class="hidden">
-      <audio id="player" controls class="hidden"></audio>
-
-      <div class="grid" style="margin-top:16px">
-        <label>Stem
-          <select id="source"></select>
-        </label>
-        <label>Model
-          <select id="model"><option value="">Automatic</option></select>
-        </label>
-        <label>Key (optional)
-          <input id="key" placeholder="e.g. A minor">
-        </label>
-        <label>Tempo, BPM (optional)
-          <input id="tempo" type="number" min="20" max="400" step="0.1" placeholder="e.g. 120">
-        </label>
-        <label class="check"><input id="bends" type="checkbox"> Pitch bends</label>
-      </div>
-
-      <div class="actions">
-        <button class="primary" id="go" disabled>Transcribe</button>
-        <button id="cancel" class="hidden">Cancel</button>
-        <progress id="progress" max="1" value="0" class="hidden"></progress>
-        <span id="status" role="status" aria-live="polite"></span>
-      </div>
-    </section>
-
-    <section id="result" class="hidden">
-      <p class="placeholder-note hidden" id="placeholder-note">
-        This is a placeholder model (hand-set weights, no training), so expect rough notes.
-      </p>
-      <div id="summary"></div>
-      <div class="roll-wrap"><canvas id="roll" height="320" aria-label="Piano roll of the transcribed notes"></canvas></div>
-      <div class="note-tip" id="tip"></div>
-      <div class="actions">
-        <button id="dl-midi">Download MIDI</button>
-        <button id="dl-json">Download JSON</button>
-      </div>
-    </section>
+<main class="page">
+  <div class="topline">
+    <span class="bt-label" id="health" role="status">CONNECTING</span>
+    <span class="bt-caption" id="meta"></span>
+    <button class="bt-btn bt-btn--ghost bt-btn--small" id="theme-toggle" type="button" aria-pressed="false">Light mode</button>
   </div>
+
+  <div class="auth" id="auth" hidden>
+    <label class="bt-field">
+      <span class="bt-label">API key</span>
+      <input class="bt-input" id="token" type="password" autocomplete="off" placeholder="the key the server was started with">
+    </label>
+  </div>
+
+  <div id="view"></div>
 </main>
 
-<script>
-(() => {
-  const $ = (id) => document.getElementById(id);
-  const DRUMS = { 35: 'kick', 36: 'kick', 38: 'snare', 40: 'snare', 41: 'tom', 43: 'tom', 45: 'tom', 47: 'tom', 48: 'tom', 50: 'tom',
-                  42: 'hi-hat', 44: 'hi-hat', 46: 'open hi-hat', 49: 'crash', 57: 'crash', 51: 'ride', 59: 'ride' };
-  const NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
-  const noteName = (p) => NAMES[p % 12] + (Math.floor(p / 12) - 1);
+<div class="bt-toast" id="toast" role="status" hidden></div>
 
-  let info = null, file = null, result = null, busy = null, lastName = 'transcription';
+<!-- Exactly one view is rendered, so a screen has exactly one shout or app title. -->
+<template id="view-none">
+  <section class="empty">
+    <h1 class="bt-shout bt-toner bt-tilt-l2" id="empty-title">Nothing here yet.</h1>
+    <p id="empty-line">This page has no view for this app yet.</p>
+  </section>
+</template>
 
-  const store = {
-    get(k) { try { return sessionStorage.getItem(k) || ''; } catch { return ''; } },
-    set(k, v) { try { sessionStorage.setItem(k, v); } catch {} },
-  };
+<template id="view-surveil">
+  <section class="bt-screen sv" aria-labelledby="sv-title">
+    <header class="sv-head">
+      <h1 class="bt-app-title" id="sv-title">SURVEIL</h1>
+      <div class="sv-cam">
+        <span class="bt-rec" id="rec" hidden>REC</span>
+        <div class="bt-readout bt-muted" id="cam"></div>
+      </div>
+    </header>
 
-  function headers(extra) {
-    const h = Object.assign({}, extra);
-    const t = $('token').value.trim();
-    if (t) h.Authorization = 'Bearer ' + t;
-    return h;
-  }
+    <label class="bt-dropzone bt-torn sv-drop" id="drop">
+      <span id="drop-text">WAV / FLAC / MP3 — or click to pick</span>
+      <input class="bt-sr-only" id="file" type="file" accept=".wav,.flac,.mp3,audio/wav,audio/x-wav,audio/flac,audio/mpeg">
+    </label>
 
-  async function api(path, opts = {}) {
-    const res = await fetch(path, Object.assign({}, opts, { headers: headers(opts.headers) }));
-    let body = null;
-    try { body = await res.json(); } catch {}
-    if (!res.ok) throw new Error((body && body.error) || res.status + ' ' + res.statusText);
-    return body;
-  }
+    <div class="sv-source" id="source-row" hidden>
+      <div class="sv-wave-wrap" id="wave-wrap" title="Click to jump">
+        <canvas class="sv-wave" id="wave" aria-hidden="true"></canvas>
+        <span class="sv-playhead" id="wave-head" aria-hidden="true"></span>
+      </div>
+      <div class="sv-transport">
+        <button class="bt-btn bt-btn--ghost bt-btn--small" id="play" type="button">[ Play ]</button>
+        <span class="bt-readout" id="clock">00:00.0 / 00:00.0</span>
+      </div>
+      <audio id="player" preload="metadata"></audio>
+    </div>
 
-  function setStatus(text, isError) {
-    $('status').textContent = text || '';
-    $('status').classList.toggle('err', !!isError);
-  }
+    <div class="sv-settings">
+      <label class="bt-field">
+        <span class="bt-label">Stem</span>
+        <span class="bt-select"><select id="source"><option value="mix">mix</option></select></span>
+      </label>
+      <label class="bt-field">
+        <span class="bt-label">Model</span>
+        <span class="bt-select"><select id="model"><option value="">automatic</option></select></span>
+      </label>
+      <label class="bt-field">
+        <span class="bt-label">Key</span>
+        <input class="bt-input" id="key" placeholder="optional, e.g. A minor" autocomplete="off">
+      </label>
+      <label class="bt-field">
+        <span class="bt-label">Tempo (BPM)</span>
+        <input class="bt-input" id="tempo" type="number" min="20" max="400" step="0.1" placeholder="optional, e.g. 120">
+      </label>
+      <label class="bt-check">
+        <input id="bends" type="checkbox">
+        <span class="bt-label">Pitch bends</span>
+      </label>
+    </div>
 
-  async function refreshHealth() {
-    try {
-      const h = await (await fetch('/health')).json();
-      const pill = $('health');
-      pill.textContent = h.status === 'ok' ? 'ready' : h.status;
-      pill.className = 'pill ' + (h.status === 'ok' ? 'ok' : h.status === 'loading' ? 'warn' : 'err');
-      $('auth').classList.toggle('hidden', !h.auth_required);
-      if (busy) {
-        const job = (h.active_jobs || []).find((j) => j.id === busy);
-        if (job) {
-          $('progress').value = job.progress || 0;
-          setStatus(job.state === 'queued' ? 'waiting for the job ahead…' : (job.stage || 'working') + ' ' + Math.round((job.progress || 0) * 100) + '%');
-        }
-      }
-      return h;
-    } catch {
-      $('health').textContent = 'offline';
-      $('health').className = 'pill err';
-      return null;
-    }
-  }
+    <div class="sv-run">
+      <div class="sv-progress" id="progress-row" hidden>
+        <div class="bt-progress" id="progress" role="progressbar" aria-label="Transcription progress"
+             aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="bt-progress__bar" id="progress-bar" style="width:0%"></div></div>
+        <div class="bt-progress__meta" id="progress-meta">WAITING</div>
+      </div>
+      <div class="sv-run__actions">
+        <button class="bt-btn bt-btn--ghost" id="cancel" type="button" hidden>Cancel</button>
+        <button class="bt-btn bt-btn--ghost" id="go" type="button" disabled>[ Tap the line ]</button>
+      </div>
+    </div>
 
-  async function loadInfo() {
-    try {
-      info = await api('/info');
-    } catch (e) {
-      setStatus(e.message, true);
-      return;
-    }
-    document.title = info.name || 'BackTrack';
-    $('title').innerHTML = '';
-    const [brand, ...rest] = (info.name || 'BackTrack').split(' ');
-    $('title').append(brand + ' ');
-    const span = document.createElement('span');
-    span.textContent = rest.join(' ');
-    $('title').append(span);
-    $('meta').textContent = [info.version && 'v' + info.version, info.device && 'on ' + info.device].filter(Boolean).join(' · ');
-    if (info.app !== 'surveil') { $('unsupported').classList.remove('hidden'); return; }
-    $('surveil').classList.remove('hidden');
-    const src = $('source');
-    src.innerHTML = '';
-    for (const s of info.sources || ['mix']) src.add(new Option(s, s, s === 'mix', s === 'mix'));
-    const models = $('model');
-    models.length = 1;
-    for (const m of info.models || []) {
-      const label = m.name + (m.placeholder ? ' (placeholder)' : '') + ' — ' + (m.stems || []).join(', ');
-      models.add(new Option(label, m.id));
-    }
-  }
+    <div class="sv-status" id="status" aria-live="polite"></div>
 
-  function pickFile(f) {
-    if (!f) return;
-    file = f;
-    lastName = f.name.replace(/\.[^.]+$/, '') || 'transcription';
-    const drop = $('drop');
-    drop.innerHTML = '';
-    const strong = document.createElement('strong');
-    strong.textContent = f.name;
-    drop.append(strong, document.createElement('br'));
-    const meta = document.createElement('span');
-    meta.className = 'meta';
-    meta.textContent = (f.size / 1048576).toFixed(1) + ' MB · click to choose another';
-    drop.append(meta);
-    const player = $('player');
-    if (player.src) URL.revokeObjectURL(player.src);
-    player.src = URL.createObjectURL(f);
-    player.classList.remove('hidden');
-    $('go').disabled = false;
-    const guess = Object.keys({ bass: 1, drums: 1, vocals: 1, piano: 1, guitar: 1, melody: 1 }).find((s) => f.name.toLowerCase().includes(s));
-    if (guess && [...$('source').options].some((o) => o.value === guess)) $('source').value = guess;
-  }
+    <div class="sv-case" id="case">
+      <div class="sv-empty" id="case-empty">
+        <p class="bt-readout">NOTHING HERE YET.</p>
+        <p>Drop a track to start.</p>
+      </div>
+      <div id="case-file" hidden>
+        <div class="bt-readout" id="case-title">CASE FILE:</div>
+        <div class="bt-readout bt-muted sv-subject" id="case-subject"></div>
+        <p class="bt-label sv-warn" id="placeholder-note" hidden>Placeholder model: hand-set weights, no training. Expect rough notes.</p>
+        <div class="sv-roll" id="roll-wrap">
+          <canvas id="roll" tabindex="0" role="img" aria-describedby="legend"></canvas>
+        </div>
+        <div class="sv-legend">
+          <p class="bt-caption" id="legend">
+            <span class="sv-key sv-key--sure" aria-hidden="true"></span> confident (0.7 and up)
+            <span class="sv-key sv-key--guess" aria-hidden="true"></span> guessing.
+            Hover a note, or focus the roll and use the arrow keys, for its numbers.
+          </p>
+        </div>
+        <p class="bt-readout sv-tip" id="tip" aria-live="polite"></p>
+        <div class="sv-foot">
+          <span class="bt-readout" id="summary"></span>
+          <span class="bt-scrawl sv-scrawl" aria-hidden="true">bright = sure.</span>
+          <span class="sv-foot__actions">
+            <button class="bt-btn bt-btn--ghost bt-btn--small" id="dl-json" type="button">[ Export .json ]</button>
+            <button class="bt-btn" id="dl-midi" type="button">Export .mid</button>
+          </span>
+        </div>
+      </div>
+    </div>
+  </section>
+</template>
 
-  function readBase64(f) {
-    return new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(String(r.result).replace(/^data:[^,]*,/, ''));
-      r.onerror = () => reject(new Error('cannot read the file'));
-      r.readAsDataURL(f);
-    });
-  }
-
-  async function transcribe() {
-    if (!file || busy) return;
-    const body = { source: $('source').value, include_midi: true };
-    if ($('model').value) body.model = $('model').value;
-    if ($('bends').checked) body.pitch_bends = true;
-    const context = {};
-    if ($('key').value.trim()) context.key = $('key').value.trim();
-    if ($('tempo').value) context.tempo = Number($('tempo').value);
-    if (Object.keys(context).length) body.context = context;
-    busy = Math.random().toString(36).slice(2, 12);
-    $('go').disabled = true;
-    $('cancel').classList.remove('hidden');
-    $('progress').classList.remove('hidden');
-    $('progress').value = 0;
-    setStatus('reading the file…');
-    const poll = setInterval(refreshHealth, 400);
-    try {
-      body.audio_base64 = await readBase64(file);
-      setStatus('uploading…');
-      result = await api('/transcribe', { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json', 'X-Job-Id': busy } });
-      result.source = body.source;
-      showResult();
-      setStatus('done');
-    } catch (e) {
-      setStatus(e.message, true);
-    } finally {
-      clearInterval(poll);
-      busy = null;
-      $('go').disabled = !file;
-      $('cancel').classList.add('hidden');
-      $('progress').classList.add('hidden');
-    }
-  }
-
-  function showResult() {
-    const notes = result.notes || [];
-    const model = (info.models || []).find((m) => m.id === result.model);
-    $('result').classList.remove('hidden');
-    $('placeholder-note').classList.toggle('hidden', !(model && model.placeholder));
-    const summary = $('summary');
-    summary.innerHTML = '';
-    const add = (k, v) => { const s = document.createElement('span'); const b = document.createElement('b'); b.textContent = v; s.append(k + ' ', b); summary.append(s); };
-    add('Notes', String(notes.length));
-    if (result.key) add('Key', result.key);
-    if (result.tempo) add('Tempo', result.tempo + ' BPM');
-    add('Model', result.model);
-    drawRoll();
-  }
-
-  // ---- piano roll ----
-  const roll = $('roll');
-  let geom = null;
-
-  function drawRoll(playhead) {
-    if (!result) return;
-    const notes = result.notes || [];
-    const drums = result.source === 'drums';
-    const css = getComputedStyle(document.documentElement);
-    const col = (n) => css.getPropertyValue(n).trim();
-    const end = Math.max(1, ...notes.map((n) => n.end), $('player').duration || 0);
-    let lo = Math.min(...notes.map((n) => n.pitch), 60) - 2, hi = Math.max(...notes.map((n) => n.pitch), 72) + 2;
-    const lanes = drums ? [...new Set(notes.map((n) => n.pitch))].sort((a, b) => a - b) : null;
-    const rows = drums ? Math.max(1, lanes.length) : hi - lo + 1;
-    const wrapWidth = roll.parentElement.clientWidth || 600;
-    const pxPerSec = Math.max(wrapWidth / end, 60);
-    const gutter = 46;
-    const width = Math.ceil(gutter + end * pxPerSec);
-    const rowH = Math.max(6, Math.min(18, Math.floor(320 / rows)));
-    const height = rows * rowH;
-    const dpr = window.devicePixelRatio || 1;
-    roll.width = width * dpr; roll.height = height * dpr;
-    roll.style.width = width + 'px'; roll.style.height = height + 'px';
-    const g = roll.getContext('2d');
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.fillStyle = col('--roll-bg'); g.fillRect(0, 0, width, height);
-    const rowOf = (p) => drums ? lanes.indexOf(p) : hi - p;
-    g.font = '10px system-ui, sans-serif';
-    g.textBaseline = 'middle';
-    for (let r = 0; r < rows; r++) {
-      const p = drums ? lanes[r] : hi - r;
-      if (!drums && p % 12 === 0) { g.fillStyle = col('--roll-c'); g.fillRect(0, r * rowH, width, rowH); }
-      g.fillStyle = col('--roll-grid'); g.fillRect(0, r * rowH + rowH - 1, width, 1);
-      if (drums || p % 12 === 0 || rowH >= 12) {
-        g.fillStyle = col('--muted');
-        g.fillText(drums ? (DRUMS[p] || p) : noteName(p), 4, r * rowH + rowH / 2);
-      }
-    }
-    for (let s = 0; s <= end; s++) {
-      g.fillStyle = col('--roll-grid');
-      g.fillRect(gutter + s * pxPerSec, 0, 1, height);
-    }
-    g.fillStyle = col('--note');
-    for (const n of notes) {
-      const x = gutter + n.start * pxPerSec, w = Math.max(3, (n.end - n.start) * pxPerSec);
-      g.globalAlpha = 0.35 + 0.65 * Math.max(0, Math.min(1, n.confidence ?? 1));
-      g.fillRect(x, rowOf(n.pitch) * rowH + 1, w, rowH - 2);
-    }
-    g.globalAlpha = 1;
-    if (playhead != null) {
-      g.fillStyle = col('--playhead');
-      g.fillRect(gutter + playhead * pxPerSec, 0, 2, height);
-    }
-    geom = { gutter, pxPerSec, rowH, rowOf, notes, drums, lanes, hi };
-  }
-
-  roll.addEventListener('mousemove', (e) => {
-    if (!geom) return;
-    const rect = roll.getBoundingClientRect();
-    const t = (e.clientX - rect.left - geom.gutter) / geom.pxPerSec;
-    const row = Math.floor((e.clientY - rect.top) / geom.rowH);
-    const n = geom.notes.find((n) => geom.rowOf(n.pitch) === row && t >= n.start && t <= Math.max(n.end, n.start + 0.05));
-    $('tip').textContent = n ? (geom.drums ? (DRUMS[n.pitch] || n.pitch) : noteName(n.pitch)) + ' · ' + n.start.toFixed(2) + '–' + n.end.toFixed(2) + ' s · velocity ' + n.velocity + ' · confidence ' + (n.confidence ?? 0).toFixed(2) : '';
-  });
-  roll.addEventListener('click', (e) => {
-    if (!geom || $('player').classList.contains('hidden')) return;
-    const rect = roll.getBoundingClientRect();
-    $('player').currentTime = Math.max(0, (e.clientX - rect.left - geom.gutter) / geom.pxPerSec);
-  });
-
-  let raf = 0;
-  const tick = () => { drawRoll($('player').currentTime); raf = $('player').paused ? 0 : requestAnimationFrame(tick); };
-  $('player').addEventListener('play', () => { if (!raf) raf = requestAnimationFrame(tick); });
-  $('player').addEventListener('seeked', () => drawRoll($('player').currentTime));
-  window.addEventListener('resize', () => drawRoll());
-
-  function download(name, bytes, type) {
-    const url = URL.createObjectURL(new Blob([bytes], { type }));
-    const a = document.createElement('a');
-    a.href = url; a.download = name;
-    document.body.append(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-  $('dl-midi').addEventListener('click', () => {
-    if (!result || !result.midi_base64) return;
-    const bin = atob(result.midi_base64), bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    download(lastName + '.' + result.source + '.mid', bytes, 'audio/midi');
-  });
-  $('dl-json').addEventListener('click', () => {
-    if (!result) return;
-    const { midi_base64, ...rest } = result;
-    download(lastName + '.' + result.source + '.json', JSON.stringify(rest, null, 2), 'application/json');
-  });
-
-  // ---- wiring ----
-  const drop = $('drop');
-  drop.addEventListener('click', () => $('file').click());
-  drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } });
-  $('file').addEventListener('change', () => pickFile($('file').files[0]));
-  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
-  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
-  drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); pickFile(e.dataTransfer.files[0]); });
-  $('go').addEventListener('click', transcribe);
-  $('cancel').addEventListener('click', () => {
-    if (busy) api('/cancel', { method: 'POST', body: JSON.stringify({ job_id: busy }), headers: { 'Content-Type': 'application/json' } }).catch(() => {});
-  });
-  $('token').value = store.get('backtrack-token');
-  $('token').addEventListener('change', () => { store.set('backtrack-token', $('token').value.trim()); loadInfo(); });
-
-  refreshHealth().then(loadInfo);
-  setInterval(() => { if (!busy) refreshHealth(); }, 5000);
-})();
-</script>
+<script src="waveform.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

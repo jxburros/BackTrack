@@ -1,5 +1,7 @@
 # GGUF metadata for BackTrack audio models
 
+![WHAT'S IN THE BOX: general.architecture, audio.stems, audio.sample_rate, audio.sources (licence)](images/banner-gguf.jpg)
+
 BackTrack owns this contract (overall plan, "Contracts between the projects"); the apps, JX
 Runtime and Song Deck's `"model"` plugin kind read it. New keys stay optional.
 

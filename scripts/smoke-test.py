@@ -127,6 +127,11 @@ def main():
            "GET /info lists models and their stems")
         st, hdr, raw = request(base + "/")
         ok(st == 200 and b"<canvas" in raw and "text/html" in hdr.get("Content-Type", ""), "GET / serves the page")
+        ok(b'data-app="surveil" data-theme="wiretap"' in raw, "the page opens in Surveil's theme (wiretap)")
+        for path, kind in [("/backtrack.css", "text/css"), ("/app.js", "text/javascript"), ("/waveform.js", "text/javascript"),
+                           ("/fonts/fonts.css", "text/css"), ("/fonts/vt323-400.woff2", "font/woff2")]:
+            st, hdr, raw = request(base + path)
+            ok(st == 200 and raw and hdr.get("Content-Type", "").startswith(kind), f"GET {path} serves the bundled file")
 
         def transcribe(name, **extra):
             body = {"audio_base64": base64.b64encode((tmp / name).read_bytes()).decode(), **extra}
@@ -223,6 +228,7 @@ def main():
         ok(request(base + "/info")[0] == 401, "no key is 401")
         ok(request(base + "/info", headers={"Authorization": "Bearer wrong"})[0] == 401, "wrong key is 401")
         ok(request(base + "/info", headers={"Authorization": "Bearer s3cret"})[0] == 200, "right key works")
+        ok(all(request(base + p)[0] == 200 for p in ["/", "/app.css", "/fonts/space-mono-400.woff2"]), "the page's files need no key")
     finally:
         srv.terminate()
         srv.wait(10)

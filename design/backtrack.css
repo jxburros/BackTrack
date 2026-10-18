@@ -22,6 +22,11 @@
   --bt-tape: #e8dcb0;
   --bt-danger: #c20500;
   --bt-focus: #e10600;
+  --bt-rec: #e10600;          /* Surveil in light mode */
+  --bt-roll-bg: #f7f5ef;
+  --bt-grid: #bdb8ad;
+  --bt-grid-strong: #5d5a53;
+  --bt-note-dim: #bdb8ad;
   --bt-display: "Anton", Impact, "Arial Narrow Bold", sans-serif;
   --bt-grain-opacity: 0.07;
 
@@ -63,6 +68,7 @@
   --bt-surface: #0a170e;
   --bt-surface-2: #06100a;
   --bt-track: #123a1e;
+  --bt-roll-bg: #06100a;
   --bt-grid: #123a1e;
   --bt-grid-strong: #1d5a30;
   --bt-ink: #39ff6a;
@@ -123,6 +129,7 @@ body > * { position: relative; z-index: 1; }
 .bt-label { font: 700 15px/1.3 var(--bt-font-work); letter-spacing: 0.14em; text-transform: uppercase; }
 .bt-caption { font: 400 14px/1.4 var(--bt-font-work); color: var(--bt-ink-muted); }
 .bt-muted { color: var(--bt-ink-muted); }
+.bt-readout { font: 700 16px/1.3 var(--bt-font-work); letter-spacing: 0.04em; }
 [data-theme="wiretap"] .bt-readout { font: 400 30px/1.1 var(--bt-font-crt); }
 /* Margin notes only. Never put instructions, values or anything clickable in scrawl. */
 .bt-scrawl {
@@ -212,6 +219,58 @@ body > * { position: relative; z-index: 1; }
 [data-theme="blast-zone"] .bt-btn--detonate { font-family: var(--bt-font-stencil); font-weight: 900; font-size: 40px; letter-spacing: 0.02em; }
 [data-theme="wiretap"] .bt-btn { font: 400 36px/1 var(--bt-font-crt); letter-spacing: 0.02em; }
 [data-theme="wiretap"] .bt-btn--ghost { box-shadow: inset 0 0 0 3px var(--bt-ink); }
+
+/* Small secondary action (theme toggle, transport): still a 44 px hit area. */
+.bt-btn--small { min-height: 44px; padding: 0 var(--bt-s3); font-size: 15px; letter-spacing: 0.14em; }
+[data-theme="wiretap"] .bt-btn--small { font-size: 26px; letter-spacing: 0.04em; }
+
+/* ---------------------------------------------------------------- form fields */
+.bt-field { display: flex; flex-direction: column; gap: var(--bt-s2); min-width: 0; }
+.bt-input,
+.bt-select select {
+  appearance: none;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 var(--bt-s3);
+  border: var(--bt-border) solid var(--bt-ink);
+  border-radius: 0;
+  background: var(--bt-surface);
+  color: var(--bt-ink);
+  font: 700 16px/1.3 var(--bt-font-work);
+}
+.bt-input::placeholder { color: var(--bt-ink-muted); opacity: 1; }
+.bt-select { position: relative; display: block; }
+.bt-select select { padding-right: var(--bt-s6); cursor: pointer; }
+.bt-select::after { content: "\25BE"; position: absolute; right: var(--bt-s3); top: 50%; transform: translateY(-50%); pointer-events: none; font: 700 16px/1 var(--bt-font-work); }
+.bt-check { display: inline-flex; align-items: center; gap: var(--bt-s3); min-height: 48px; cursor: pointer; }
+.bt-check input {
+  appearance: none;
+  flex: none;
+  width: 28px; height: 28px;
+  margin: 0;
+  border: var(--bt-border) solid var(--bt-ink);
+  border-radius: 0;
+  background: var(--bt-surface);
+  cursor: pointer;
+}
+.bt-check input:checked { background: var(--bt-accent); box-shadow: inset 0 0 0 4px var(--bt-surface); }
+.bt-dropzone:focus-within { outline: 3px solid var(--bt-focus); outline-offset: 3px; }
+.bt-dropzone { cursor: pointer; }
+
+/* ---------------------------------------------------------------- status */
+.bt-error { margin: 0; color: var(--bt-danger); font: 700 16px/1.4 var(--bt-font-work); }
+.bt-toast {
+  position: fixed;
+  left: var(--bt-margin);
+  bottom: var(--bt-s5);
+  z-index: 10;
+  max-width: min(520px, calc(100vw - 2 * var(--bt-margin)));
+  padding: var(--bt-s3) var(--bt-s4);
+  background: #0d0d0d;
+  color: #f1efe9;
+  font: 700 16px/1.3 var(--bt-font-work);
+}
+.bt-sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* ---------------------------------------------------------------- app bar (hub) */
 .bt-appbar {

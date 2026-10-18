@@ -325,9 +325,17 @@ Short, blunt, lower-key than the visuals. Active verbs. Say what happens and wha
   `<html data-theme="wiretap">`, the separator `<html data-theme="blast-zone">`, and a light-mode
   toggle switches either to `xerox-riot` (stored in `localStorage` as `bt-theme`).
 - When Song Deck embeds an app, keep the theme inside the app's own panel. Do not restyle Song Deck.
-- Fonts (all OFL): Anton, Space Mono 400 and 700, Permanent Marker, Big Shoulders Stencil Display
-  900 and VT323, as WOFF2 next to the page. Declare them with `@font-face` and `font-display: swap`.
+- Fonts: Anton, Space Mono 400 and 700, Permanent Marker, Big Shoulders Stencil Display 900 and
+  VT323, as WOFF2 in `ui/fonts/` with their licences (all OFL except Permanent Marker, which is
+  Apache 2.0). Declare them with `@font-face` and `font-display: swap`.
   The fallbacks are in `tokens.json`.
+- Every file in `ui/` is embedded in the binaries (`cmake/EmbedPage.cmake`) and served beside the
+  page. `ui/backtrack.css` and `ui/waveform.js` must match `design/` byte for byte (a CTest checks
+  it): change them in `design/` and copy.
+- Beyond section 5, `backtrack.css` has form fields (`.bt-field`, `.bt-input`, `.bt-select`,
+  `.bt-check`), `.bt-btn--small` (44 px), `.bt-error`, `.bt-toast` and `.bt-sr-only`, and the
+  Surveil roll colors (`--bt-roll-bg`, `--bt-grid`, `--bt-grid-strong`, `--bt-note-dim`, `--bt-rec`)
+  for its xerox-riot light mode, where the scanlines are off.
 - If you need a value that isn't a token, add it to `tokens.json` and `backtrack.css` together, with
   a contrast check if it is a color, and mention it in the PR.
 

@@ -6,7 +6,7 @@
 // - Bound to 127.0.0.1 by default; Host headers that are not loopback names
 //   are refused while bound to loopback (DNS-rebinding protection).
 // - Optional bearer token, checked in constant time, on everything except
-//   GET /health and the page at GET /.
+//   GET /health and the page's files (GET / and the files beside it).
 // - CORS only for the Song Deck origins (or --allow-origin), plus the page's
 //   own origin.
 // - Long jobs run one at a time with a small queue (409 beyond it); they stop
@@ -36,6 +36,13 @@ struct HttpError : std::runtime_error {
 // Song Deck's studio dev server (5173) and local server (7788).
 std::vector<std::string> default_cors_origins();
 
+// One file of the page (ui/ in the repository), served at GET /<path>.
+struct PageFile {
+    std::string path;                          // "index.html", "fonts/vt323-400.woff2"
+    std::string type;                          // Content-Type
+    std::string body;
+};
+
 struct ServerOptions {
     std::string host = "127.0.0.1";
     int port = 0;
@@ -48,7 +55,10 @@ struct ServerOptions {
     std::string app;                           // "surveil"
     std::string role;                          // Song Deck bridge role: "transcription"
     std::string version;
-    std::string page_html;                     // served at GET /
+    std::vector<PageFile> page;                // index.html is also served at GET /
+    // The page's look (design/AGENT-SPEC.md): data-theme="xerox-riot" and data-app="" on
+    // index.html's <html> tag are replaced with these, so the page opens in the app's theme.
+    std::string theme;                         // "wiretap"
     bool quiet = false;                        // no per-request log lines
 };
 

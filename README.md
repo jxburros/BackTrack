@@ -1,5 +1,7 @@
 # BackTrack
 
+![BACKTRACK: song in, stems and MIDI out. Runs on your machine.](docs/images/hero.jpg)
+
 A stem separator and a MIDI transcriber, built from one repository on a shared core:
 
 - **BackTrack Explode** splits a song into stems (`backtrack-explode`, port 8827). *Coming in
@@ -25,6 +27,15 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
 ./build/backtrack-surveil serve               # then open http://127.0.0.1:8826
 ```
 
+## What it looks like
+
+`backtrack-surveil serve` puts this page on `http://127.0.0.1:8826`: drop a track, tap the line,
+read the case file, export the MIDI. Bright notes are the ones the model is sure of.
+
+![The Surveil page, marked up: drop zone, waveform, settings, TAP THE LINE, REC, case file, piano roll and export](docs/images/page-tour.jpg)
+
+The page has its own guide: [docs/page.md](docs/page.md).
+
 ## Surveil on the command line
 
 ```bash
@@ -49,6 +60,9 @@ It implements Song Deck's `POST /transcribe` contract plus an optional `context`
 
 ## How it works
 
+![How it fits: your audio and the model weights go through core/ into Surveil (and Explode, coming in S0), which you reach from the CLI, the page or Song Deck](docs/images/architecture.jpg)
+
+
 Audio is resampled to 22.05 kHz mono and turned into a harmonic constant-Q spectrogram
 ([docs/front-end.md](docs/front-end.md)). A small convolutional network on ggml gives, per
 frame, the likelihood of a note starting, sounding and ending at each of 88 pitches, plus a
@@ -58,9 +72,13 @@ own front-end settings and licence record ([docs/gguf-metadata.md](docs/gguf-met
 
 ## Documentation
 
+- [The page](docs/page.md): the Surveil screen, light mode, keyboard, the design rules
 - [Building](docs/building.md): ggml vendoring, GPU backends, layout
-- [HTTP API](docs/http-api.md)
-- [GGUF metadata](docs/gguf-metadata.md) and [front end](docs/front-end.md)
+- [HTTP API](docs/http-api.md): endpoints, and one job from start to finish
+- [Front end](docs/front-end.md): how Surveil hears (harmonic CQT), and
+  [GGUF metadata](docs/gguf-metadata.md): what a model file says about itself
+- [Design language](design/README.md): the boards, the rules and the
+  [agent spec](design/AGENT-SPEC.md)
 - Plans: [overall](docs/plans/overall.md), [Surveil](docs/plans/surveil.md),
   [Explode](docs/plans/explode.md)
 

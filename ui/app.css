@@ -1,0 +1,88 @@
+/* Page layout for the app views. Components and tokens come from backtrack.css (a copy of
+   design/backtrack.css); no colors are defined here. */
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+p { margin: 0; }
+
+.page { max-width: 1240px; margin: 0 auto; padding: var(--bt-s5) var(--bt-margin) var(--bt-s7); }
+
+.topline { display: flex; flex-wrap: wrap; align-items: center; gap: var(--bt-s2) var(--bt-s4); margin-bottom: var(--bt-s4); }
+.topline #theme-toggle { margin-left: auto; }
+#health[data-state="ok"] { color: var(--bt-accent-text); }
+#health[data-state="error"] { color: var(--bt-danger); }
+
+.auth { max-width: 480px; margin-bottom: var(--bt-s4); }
+
+.empty { padding: var(--bt-s6) 0; }
+.empty p { margin-top: var(--bt-s4); }
+
+/* ---------------------------------------------------------------- Surveil */
+.sv { padding: var(--bt-s5); }
+.sv > * + * { margin-top: var(--bt-s5); }
+.sv-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: var(--bt-s3) var(--bt-s5); }
+.sv-cam { display: flex; flex-direction: column; align-items: flex-end; gap: var(--bt-s2); min-height: 52px; justify-content: flex-end; }
+.sv-cam .bt-readout { white-space: pre; }
+.bt-rec { color: var(--bt-rec, var(--bt-danger)); }
+/* Scanlines belong to the CRT (wiretap); the light mode is plain paper. */
+[data-theme="xerox-riot"] .bt-screen::after { display: none; }
+#theme-toggle[aria-pressed="true"] { background: var(--bt-ink); color: var(--bt-bg); }
+
+.sv-drop { min-height: 150px; }
+.sv-drop span { overflow-wrap: anywhere; }
+
+.sv-source { display: grid; gap: var(--bt-s3); }
+.sv-wave-wrap { position: relative; cursor: pointer; }
+.sv-wave { display: block; width: 100%; height: 64px; color: var(--bt-accent); }
+.sv-playhead { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: var(--bt-ink); pointer-events: none; }
+.sv-transport { display: flex; flex-wrap: wrap; align-items: center; gap: var(--bt-s3); }
+
+.sv-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: var(--bt-s4); align-items: end; }
+
+.sv-run { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--bt-s4); }
+.sv-progress { flex: 1 1 320px; }
+.sv-run__actions { display: flex; flex-wrap: wrap; gap: var(--bt-s3); margin-left: auto; }
+
+.sv-status:empty { display: none; }
+.sv-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--bt-s3) var(--bt-s5); }
+.sv-status .bt-stamp { font-size: 36px; }
+
+.sv-case { border-top: 2px solid var(--bt-grid, var(--bt-track)); padding-top: var(--bt-s5); }
+.sv-case > div > * + * { margin-top: var(--bt-s3); }
+.sv-empty p + p { margin-top: var(--bt-s2); }
+.sv-subject { display: flex; flex-wrap: wrap; gap: 0 var(--bt-s4); }
+.sv-subject > span { white-space: nowrap; }
+[data-theme="wiretap"] .sv-subject { font-size: 26px; }
+.sv-warn { color: var(--bt-ink-muted); }
+
+/* Piano roll: drawn on the canvas with the colors below. 25 px lanes, beat and bar lines. */
+.sv-roll {
+  overflow: auto;
+  max-height: 425px;
+  border: 2px solid var(--bt-note-dim, var(--bt-track));
+  background: var(--bt-roll-bg, var(--bt-surface-2));
+  font: 700 12px/1 var(--bt-font-work);
+}
+[data-theme="wiretap"] .sv-roll { font: 400 20px/1 var(--bt-font-crt); }
+.sv-roll canvas { display: block; }
+
+.sv-legend { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--bt-s3); }
+.sv-key { display: inline-block; width: 28px; height: 14px; vertical-align: -1px; margin: 0 4px 0 var(--bt-s2); }
+.sv-key:first-child { margin-left: 0; }
+.sv-key--sure { background: var(--bt-ink); }
+.sv-key--guess { background: var(--bt-note-dim, var(--bt-track)); box-shadow: inset 0 0 0 1px var(--bt-ink); }
+.sv-scrawl { transform: rotate(-4deg); font-size: 30px; margin-right: auto; }
+.sv-tip { min-height: 1.1em; }
+
+#summary { white-space: pre-wrap; }
+.sv-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--bt-s4); }
+.sv-foot__actions { display: flex; flex-wrap: wrap; gap: var(--bt-s3); margin-left: auto; }
+
+@media (max-width: 720px) {
+  .page { padding-top: var(--bt-s3); }
+  .sv { padding: var(--bt-s3); }
+  .sv > * + * { margin-top: var(--bt-s4); }
+  .sv-cam { align-items: flex-start; }
+  .sv-cam .bt-readout { white-space: normal; }
+  .sv-drop { min-height: 120px; padding: 36px; font-size: 18px; }
+  .sv-run__actions, .sv-foot__actions { margin-left: 0; }
+}

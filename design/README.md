@@ -91,6 +91,9 @@ The boards are made with [Vixl](https://github.com/jxburros/Vixl). Every layer s
 
 - `source/vixl/*.vixl` are the layered documents. Open them with `vixl open`, or edit them in the
   Vixl MCP server.
+- `source/docs_art.py` draws the pictures in `docs/images/` (banners, diagrams, the page tour)
+  from the same kit; `source/docs_shots.py` takes the page screenshots it uses. See
+  [docs/page.md](../docs/page.md#the-pictures-in-these-docs).
 - `source/boards.py` rebuilds all seven boards, the JPEGs and the PDF; `source/kit.py` has the shared
   pieces (torn paper, tape, ransom lettering, waveforms). Run `python design/source/boards.py`
   with Vixl installed. Fonts download from Google Fonts on the first run.
