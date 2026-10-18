@@ -18,6 +18,11 @@ All seven are also in [backtrack-design-language.pdf](backtrack-design-language.
 
 ![Cover](boards/01-cover.jpg)
 
+**Building UI?** Agents and developers should start with [AGENT-SPEC.md](AGENT-SPEC.md). It has the
+rules, components, copy and acceptance checks, backed by [tokens.json](tokens.json),
+[backtrack.css](backtrack.css), [waveform.js](waveform.js) and the reference screens in
+[preview.html](preview.html).
+
 ## The rules
 
 1. **Loud before pretty.** One shout per screen: a huge condensed headline, then quiet.
