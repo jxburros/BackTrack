@@ -79,7 +79,7 @@ The drum classes should match the drum stems Song Deck's staged separation alrea
   ACE-Step performances of Song Deck songs, separated, then transcribed and scored against the
   song's own notes. It's realistic audio with a known answer, recorded run against run. Use it to
   set the baseline for each stem type now (built-in, Basic Pitch, the specialists) and to judge
-  every milestone below. It's for measuring; training on ACE-Step output is an open decision.
+  every milestone below. Training on ACE-Step performances is allowed too (licence checked by the owner 2026-10-18).
 
 ## Training code (`training/`)
 

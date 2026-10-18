@@ -71,6 +71,7 @@ that repository exists.
 | Models                    | Trained in-house: on audio Song Deck renders itself, plus datasets that allow commercial use                   |
 | Training code             | A `training/` folder in the audio-apps repository (Python), exporting GGUF                                     |
 | Commercial status         | Treat everything as a commercial product                                                                       |
+| ACE-Step output           | Allowed as training data (licence checked by the owner, 2026-10-18); recorded in each model's `audio.sources`  |
 
 ## Layout of the audio-apps repository
 
@@ -126,8 +127,9 @@ What it gives the plan:
   show up in the lab like any other separator or transcriber, so "beats the current best" in the
   app plans is measured here, run against run.
 
-ACE-Step's output is for **measurement**. Whether it may also be **training** data depends on
-ACE-Step's licence and on what ACE-Step itself was trained on; that is an open decision below.
+ACE-Step's output is for measurement, and also for **training**: the owner checked ACE-Step's
+licence (2026-10-18) and it allows it. Models trained on it record ACE-Step in their
+`audio.sources`.
 
 ## Contracts between the projects
 
@@ -152,8 +154,5 @@ other side in the same milestone.
 - **Vocal training data for the separator:** licensed, commissioned or synthetic. This is the
   largest cost and risk in the whole plan; see the [separator plan](./explode.md#training-data).
 - **Platforms for 1.0:** Windows, macOS and Linux, and which GPU backends each gets.
-- **ACE-Step output as training data:** fine for measuring in the round-trip lab; training a
-  commercial model on it needs ACE-Step's licence terms and its training-data provenance checked
-  first.
 - **The round-trip lab's future:** remove it once the apps have their own evaluation, or keep it
   as a permanent benchmark (it is in one folder either way).

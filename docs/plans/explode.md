@@ -79,9 +79,8 @@ This is the hardest part of the whole plan, and the part to start first.
   every run recorded against the settings that made it. It's the best owned test set available
   today. Record baselines for Demucs, the RoFormer models and the built-in separator now; S2's
   "competitive with Demucs" is judged here.
-- **ACE-Step output as training data** would ease the vocal gap, but only if ACE-Step's licence
-  allows it and its own training data doesn't make the output a risk. Check both before any of it
-  goes into training; until then it is evaluation only.
+- **ACE-Step output as training data** eases the vocal gap. The owner checked ACE-Step's licence
+  (2026-10-18) and it allows training; re-check if a different ACE-Step version or model is used.
 
 ## Training code (`training/`, shared with the transcriber)
 
