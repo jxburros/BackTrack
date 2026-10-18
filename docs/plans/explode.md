@@ -1,7 +1,7 @@
-# Separator app plan
+# Separator app plan: BackTrack Explode
 
-Part of the [overall plan](./README.md). "Separator" is a working name. It lives in the new
-audio-apps repository next to the [transcriber](./transcriber-app.md) and shares its `core/`,
+Part of the [overall plan](./overall.md). "Separator" is a working name. It lives in the new
+audio-apps repository next to the [transcriber](./surveil.md) and shares its `core/`,
 `server/` and `ui/` (layout in the overall plan).
 
 ## What it is
@@ -54,7 +54,7 @@ combine it with others where they're stronger.
 
 This is the hardest part of the whole plan, and the part to start first.
 
-- **Instrumental stems from Song Deck renders** ([Song Deck plan §2.5](./song-deck.md#25-training-data-export-m3)):
+- **Instrumental stems from Song Deck renders** ([Song Deck plan §2.5](https://github.com/jxburros/Song-Deck/blob/main/docs/plans/song-deck.md#25-training-data-export-m3)):
   plenty of them, with exact stems and rights owned. Good for drums, bass, keys and synths. Vary
   instruments, effects, mixing and mastering heavily, including bus compression, limiting and
   reverb, so the model sees mastered mixes, not clean sums.
@@ -73,7 +73,7 @@ This is the hardest part of the whole plan, and the part to start first.
 - **Evaluation:** Song Deck's `eval:datasets` scores SDR on MUSDB18-HQ and MoisesDB. Use those for
   measurement only, not training, and check that their licences cover evaluation in a commercial
   setting. Build a small owned real test set as well.
-- **Round-trip lab** (Song Deck 0.15.0, [overall plan](./README.md#measuring-progress-the-round-trip-lab-done-m0)):
+- **Round-trip lab** (Song Deck 0.15.0, [overall plan](./overall.md#measuring-progress-the-round-trip-lab-done-m0)):
   ACE-Step performs a Song Deck song **track by track**, so every stem, sung vocals included, is
   known and sums to the mix. Separating that sum gives exact SDR per stem on realistic audio, with
   every run recorded against the settings that made it. It's the best owned test set available

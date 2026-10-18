@@ -1,16 +1,22 @@
 # Overall plan: separator, transcriber, JX Runtime and Song Deck
 
+> **Names (decided).** The audio-apps repository is **BackTrack**
+> ([jxburros/BackTrack](https://github.com/jxburros/BackTrack)); the separator is **BackTrack
+> Explode** (`backtrack-explode`, port 8827) and the transcriber is **BackTrack Surveil**
+> (`backtrack-surveil`, port 8826). This copy of the plan moved here from Song Deck's
+> `docs/plans/`; "separator" and "transcriber" below mean Explode and Surveil.
+
 Written 2026-10-18 and updated the same day for the round-trip lab (Song Deck 0.15.0). This is
 the plan that ties the others together. Each project has its own
 plan with the detail:
 
 | Plan                                    | Project                                                                       |
 | --------------------------------------- | ----------------------------------------------------------------------------- |
-| [Song Deck](./song-deck.md)             | This repository                                                               |
-| [JX Runtime](./jx-runtime.md)           | [jxburros/JX-Runtime](https://github.com/jxburros/JX-Runtime)                 |
-| [Onyx Engine](./onyx-engine.md)         | [JX-Holdings-LLC/Onyx-Engine](https://github.com/JX-Holdings-LLC/Onyx-Engine) |
-| [Transcriber app](./transcriber-app.md) | New audio-apps repository                                                     |
-| [Separator app](./separator-app.md)     | New audio-apps repository                                                     |
+| [Song Deck](https://github.com/jxburros/Song-Deck/blob/main/docs/plans/song-deck.md)             | This repository                                                               |
+| [JX Runtime](https://github.com/jxburros/Song-Deck/blob/main/docs/plans/jx-runtime.md)           | [jxburros/JX-Runtime](https://github.com/jxburros/JX-Runtime)                 |
+| [Onyx Engine](https://github.com/jxburros/Song-Deck/blob/main/docs/plans/onyx-engine.md)         | [JX-Holdings-LLC/Onyx-Engine](https://github.com/JX-Holdings-LLC/Onyx-Engine) |
+| [Transcriber app](./surveil.md) | BackTrack (this repository): BackTrack Surveil                                |
+| [Separator app](./explode.md)     | BackTrack (this repository): BackTrack Explode                                |
 
 The plans live here because Song Deck is the hub. Move each one into its own repository once
 that repository exists.
@@ -87,7 +93,7 @@ third_party/     pinned ggml, cpp-httplib, single-header audio decoders
 | --- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- | ---------- | ---------- |
 | M0  | Round-trip lab: measure separation and transcription on ACE-Step performances, record every run (done in 0.15.0)                | Song Deck                     | none       | done       |
 | M1  | Song Deck uses JX Runtime for LLMs: preset, discovery, pairing                                                                  | Song Deck, JX Runtime         | none       | 1–2 weeks  |
-| M2  | Audio-apps repository set up: shared core, server, page; transcriber running a placeholder model end to end                     | Audio apps (Onyx as template) | none       | 2–3 weeks  |
+| M2  | Audio-apps repository set up: shared core, server, page; transcriber running a placeholder model end to end (done, BackTrack 0.0.1) | Audio apps (Onyx as template) | none       | done       |
 | M3  | Training pipeline, including Song Deck's training-data export; first drum model; Transcriber 0.1 binaries; Song Deck preset     | Audio apps, Song Deck         | M2         | 4–6 weeks  |
 | M4  | Transcriber in WebAssembly inside Song Deck (`"model"` plugin kind); bass and melody models                                     | Song Deck, audio apps         | M3         | 3–5 weeks  |
 | M5  | Separator 0.1: first model, binaries, Song Deck preset                                                                          | Audio apps, Song Deck         | M2         | 8–12 weeks |
@@ -99,7 +105,7 @@ vocals) needs the longest lead time, so start sourcing data early.
 ## Measuring progress: the round-trip lab (done, M0)
 
 Song Deck 0.15.0 has a temporary Labs tool, the **round-trip lab**
-([Song Deck plan, part 3](./song-deck.md#part-3-the-round-trip-lab-done)). It takes a song Song
+([Song Deck plan, part 3](https://github.com/jxburros/Song-Deck/blob/main/docs/plans/song-deck.md#part-3-the-round-trip-lab-done)). It takes a song Song
 Deck composed, the version ACE-Step performed, and separates that performance with whatever
 separators Song Deck is set to use. It then compares each stem with what went in: the produced
 stems sample for sample (when ACE-Step produced track by track), the guide render by harmony and
@@ -115,7 +121,7 @@ What it gives the plan:
   Demucs, the RoFormer models, Basic Pitch, the specialists) can be measured on realistic
   performances before any of our own models exist.
 - **Realistic test material with known answers,** including sung vocals, which the
-  [separator plan](./separator-app.md#training-data) names as the hardest data to get.
+  [separator plan](./explode.md#training-data) names as the hardest data to get.
 - **The yardstick for every milestone.** Once the apps are connected as Song Deck providers they
   show up in the lab like any other separator or transcriber, so "beats the current best" in the
   app plans is measured here, run against run.
@@ -137,13 +143,14 @@ other side in the same milestone.
 
 ## Open decisions
 
-- **App names**, which also name the binaries, presets and release assets.
+- ~~**App names**~~ — decided: BackTrack Explode and BackTrack Surveil (binaries
+  `backtrack-explode` and `backtrack-surveil`).
 - **Licence for the audio-apps repository:** open source (MIT, like Onyx Engine) or closed. This
   decides whether model weights are published alongside the code.
 - **Code signing** for the Windows and macOS releases, of the apps and of JX Runtime. Without it,
   "easy for users" stays out of reach.
 - **Vocal training data for the separator:** licensed, commissioned or synthetic. This is the
-  largest cost and risk in the whole plan; see the [separator plan](./separator-app.md#training-data).
+  largest cost and risk in the whole plan; see the [separator plan](./explode.md#training-data).
 - **Platforms for 1.0:** Windows, macOS and Linux, and which GPU backends each gets.
 - **ACE-Step output as training data:** fine for measuring in the round-trip lab; training a
   commercial model on it needs ACE-Step's licence terms and its training-data provenance checked

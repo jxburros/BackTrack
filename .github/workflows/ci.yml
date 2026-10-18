@@ -1,0 +1,69 @@
+# BackTrack CI: build against the pinned ggml, run the unit tests and the
+# end-to-end smoke test on Linux, macOS and Windows.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Fetches and verifies the pinned ggml commit (scripts/install-vendor.js).
+      - name: Install ggml
+        run: npm ci
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_CCACHE=OFF
+
+      - name: Build
+        run: cmake --build build --config Release -j 4
+
+      - name: Locate binaries
+        id: bin
+        run: |
+          for dir in build build/Release; do
+            for ext in .exe ""; do  # .exe first: Git Bash also matches the bare name
+              if [ -f "$dir/backtrack-surveil$ext" ]; then
+                echo "surveil=$dir/backtrack-surveil$ext" >> "$GITHUB_OUTPUT"
+                echo "tests=$dir/backtrack-tests$ext" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            done
+          done
+          echo "::error::backtrack-surveil not found"; exit 1
+
+      - name: Unit tests
+        run: '"${{ steps.bin.outputs.tests }}"'
+
+      - name: Smoke test
+        run: python scripts/smoke-test.py "${{ steps.bin.outputs.surveil }}"

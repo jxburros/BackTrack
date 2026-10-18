@@ -1,0 +1,14 @@
+build/
+build-*/
+.cache/
+*.gguf
+/models/
+compile_commands.json
+.vscode/
+.idea/
+node_modules/
+packaging/dist/
+/vendor/
+.venv/
+venv/
+__pycache__/
