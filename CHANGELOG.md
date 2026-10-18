@@ -17,6 +17,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   FAILED states with the cause and the fix, toasts, and a light mode (`xerox-riot`, remembered as
   `bt-theme`). The fonts (Anton, Space Mono, Permanent Marker, Big Shoulders Stencil Display,
   VT323) are bundled, so the page loads nothing from the network.
+- **Docs in the house style.** A hero for the README, a banner for each doc, and diagrams drawn
+  from the real numbers: how the repository fits together, Surveil's stages and where they sit
+  on the progress bar, one HTTP job from start to finish, and where one note lands in each
+  harmonic CQT channel. New `docs/page.md` walks through the page with a marked-up screenshot.
+  All drawn with Vixl (`design/source/docs_art.py`), editable in `design/source/vixl/docs/`.
 - **The server serves the page's files.** `ServerOptions::page_html` is replaced by `page` (every
   file in `ui/`, embedded by `cmake/EmbedPage.cmake`) and `theme`; the page's files need no API key.
 

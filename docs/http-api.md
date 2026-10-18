@@ -1,5 +1,7 @@
 # HTTP API
 
+![THE WIRE: POST /transcribe, GET /health, GET /info, POST /cancel on 127.0.0.1:8826](images/banner-http.jpg)
+
 Both apps serve Song Deck's bridge contracts (`packages/ai/src/contracts.ts` in Song Deck; Song
 Deck owns them) through the shared layer in `server/`, which follows the same rules as Song
 Deck's own Python bridges (`bridges/songdeck_bridge/server.py`). This page covers BackTrack
@@ -8,6 +10,12 @@ Surveil; BackTrack Explode will add `POST /separate` on port 8827 (S0).
 ```
 backtrack-surveil serve              # http://127.0.0.1:8826, page at /
 ```
+
+## One job, start to finish
+
+This is what the page does, and what Song Deck's adapter does without the polling.
+
+![Sequence: GET /info; POST /transcribe with X-Job-Id; GET /health every 400 ms reports the stage and fraction; POST /cancel answers the job with 409; otherwise 200 with notes, key, tempo and midi_base64](images/http-lifecycle.jpg)
 
 ## Rules common to both apps
 
@@ -103,7 +111,11 @@ context?: {
 
 ## `GET /health`
 
-No auth. The page polls it for progress.
+No auth. The page polls it for progress. While Surveil works, `stage` moves through `decode`,
+`resample`, `front end`, `model` and `notes`; `progress` is the fraction done, and most of the
+wait is the front end and the model:
+
+![Surveil's six stages and where each sits on the progress bar: decode 0%, resample 2%, front end 5-45%, model 45-90%, notes 92%, out 100%](images/surveil-pipeline.jpg)
 
 ```jsonc
 {
