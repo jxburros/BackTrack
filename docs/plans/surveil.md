@@ -1,7 +1,7 @@
-# Transcriber app plan
+# Transcriber app plan: BackTrack Surveil
 
-Part of the [overall plan](./README.md). "Transcriber" is a working name. It lives in the new
-audio-apps repository next to the [separator](./separator-app.md) and shares its `core/`,
+Part of the [overall plan](./overall.md). "Transcriber" is a working name. It lives in the new
+audio-apps repository next to the [separator](./explode.md) and shares its `core/`,
 `server/` and `ui/` (layout in the overall plan).
 
 ## What it is
@@ -63,7 +63,7 @@ The drum classes should match the drum stems Song Deck's staged separation alrea
 
 ## Training data
 
-- **Song Deck renders** (via Song Deck's training-data export, [Song Deck plan §2.5](./song-deck.md#25-training-data-export-m3)):
+- **Song Deck renders** (via Song Deck's training-data export, [Song Deck plan §2.5](https://github.com/jxburros/Song-Deck/blob/main/docs/plans/song-deck.md#25-training-data-export-m3)):
   unlimited, exactly labelled, rights owned. Vary instruments, effects, mixing and tuning.
 - **Separator output:** mix the rendered stems, separate the mix (the separator app or the
   separators Song Deck supports), and train on the separated stems with the original labels.
@@ -75,7 +75,7 @@ The drum classes should match the drum stems Song Deck's staged separation alrea
   Pretrained weights with unclear training data are out too.
 - **Real test set:** a few dozen real recordings with hand-corrected MIDI, for each stem type.
   Synthetic scores flatter the model; this set is the one to trust.
-- **Round-trip lab** (Song Deck 0.15.0, [overall plan](./README.md#measuring-progress-the-round-trip-lab-done-m0)):
+- **Round-trip lab** (Song Deck 0.15.0, [overall plan](./overall.md#measuring-progress-the-round-trip-lab-done-m0)):
   ACE-Step performances of Song Deck songs, separated, then transcribed and scored against the
   song's own notes. It's realistic audio with a known answer, recorded run against run. Use it to
   set the baseline for each stem type now (built-in, Basic Pitch, the specialists) and to judge
@@ -97,7 +97,7 @@ transcribe`, `audio.stems`, `audio.sample_rate`, `audio.hop`, `audio.classes`,
 
 | #   | What                                                                                                                   | Done when                                                                            | Size                   |
 | --- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ---------------------- |
-| T0  | Repository, shared core and server, CLI and page, with a placeholder model (random weights, real graph)                | Song Deck can call it as a bridge and gets notes back                                | 2–3 weeks (part of M2) |
+| T0  | Repository, shared core and server, CLI and page, with a placeholder model (random weights, real graph) — **done (0.0.1)** | Song Deck can call it as a bridge and gets notes back                                | done (M2)              |
 | T1  | Training pipeline: data reader, front end, parity check, GGUF export                                                   | A trained toy model runs identically in PyTorch and C++                              | 1–2 weeks              |
 | T2  | Drum model                                                                                                             | Beats Song Deck's onset-based drum transcription on the real test set and E-GMD      | 2–3 weeks              |
 | T3  | Release 0.1: binaries for Windows, macOS and Linux (CPU, plus GPU builds), models as separate downloads with checksums | Song Deck's one-click install works                                                  | about 1 week           |
