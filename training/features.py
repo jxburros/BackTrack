@@ -114,3 +114,47 @@ def window(feats, start: int, length: int) -> np.ndarray:
         out[:, a - start : b - start] = feats.frames(a, b) if isinstance(feats, Features) else feats[:, a:b]
     return out
 
+
+
+def ext_window(feats: Features, start: int, length: int) -> np.ndarray:
+    """Frames start..start+length of the cached extended transform itself
+    (length, n_ext) float16, zeros outside the item: a training crop before
+    the harmonic expansion, which `Expander` does on the training device."""
+    T, E = feats.ext.shape
+    out = np.zeros((length, E), np.float16)
+    a, b = max(0, start), min(T, start + length)
+    if b > a:
+        out[a - start : b - start] = feats.ext[a:b]
+    return out
+
+
+class Expander:
+    """The harmonic expansion (Hcqt.expand) as a gather in PyTorch, so crops
+    travel to the device as the 401-bin float16 transform (5.3 times less
+    than the 8 x 264 float32 stack) and expand there. Same values exactly."""
+
+    def __init__(self, fe: FrontEnd, device="cpu"):
+        import torch
+
+        h = hcqt_for(fe)
+        idx = np.stack([np.arange(fe.n_bins) + off - h.lo for off in h.offsets])  # (H, B)
+        self.idx = torch.from_numpy(idx.astype(np.int64)).to(device)
+
+    def __call__(self, ext):
+        """ext (N, T, n_ext) -> (N, H, T, B) float32."""
+        x = ext.float()[:, :, self.idx]  # (N, T, H, B)
+        return x.permute(0, 2, 1, 3)
+
+
+def region_mask(regions, n_frames: int, frame_rate: float) -> np.ndarray | None:
+    """(frames,) float32, 1 on frames whose time k / frame_rate lies in a
+    region; None when regions is None (every frame counts)."""
+    if regions is None:
+        return None
+    m = np.zeros(n_frames, np.float32)
+    for a, b in regions:
+        k0 = max(0, int(np.ceil(a * frame_rate - 1e-9)))
+        k1 = min(n_frames, int(np.ceil(b * frame_rate - 1e-9)))
+        if k1 > k0:
+            m[k0:k1] = 1
+    return m

@@ -4,11 +4,16 @@ one-to-one matching, closest pairs first, same class).
 
     python3 -m training.evaluate --model M.gguf --data DIR [--split test] [--audio stem]
                                  [--binary build/backtrack-surveil] [--json report.json]
+                                 [--device auto] [--min-agreement 0.6] [--min-offset-strength 0.2]
 
 With --binary, each item goes through the shipped binary (`--stem drums
 --json`) and its notes are scored, so what is measured is what ships;
 without, the model runs in PyTorch and hits are picked by `pick_drums`, a
 port of the C++ note picking (apps/surveil/notes.cpp, drums()).
+
+`--audio performed` (ACE-Step performances, see datasets.py) is scored only
+inside each take's accepted windows: reference hits and estimates outside
+them are left out, and the report says so ("performed" in the JSON).
 """
 
 from __future__ import annotations
@@ -134,19 +139,42 @@ def table(report: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
-def infer_long(model, feats: np.ndarray, chunk: int = 2048) -> np.ndarray:
+def pick_device(name: str = "auto") -> torch.device:
+    """auto: CUDA, then Apple's MPS, then CPU."""
+    if name == "auto":
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        mps = getattr(torch.backends, "mps", None)
+        if mps is not None and mps.is_available():
+            return torch.device("mps")
+        return torch.device("cpu")
+    if name == "cuda" and not torch.cuda.is_available():
+        raise SystemExit("--device cuda: CUDA is not available to this PyTorch build")
+    if name == "mps" and not (getattr(torch.backends, "mps", None) and torch.backends.mps.is_available()):
+        raise SystemExit("--device mps: MPS is not available to this PyTorch build")
+    return torch.device(name)
+
+
+def infer_long(model, feats: np.ndarray, chunk: int = 2048, device=None) -> np.ndarray:
     """Onset likelihoods (frames, classes) for a whole item, in chunks with
     the receptive radius as context (the binary's semantics)."""
     r = model.receptive_radius
     T = feats.shape[1]
+    device = device or next(model.parameters()).device
     out = []
     with torch.no_grad():
         for s in range(0, T, chunk):
             n = min(chunk, T - s)
-            x = torch.from_numpy(features.window(feats, s - r, n + 2 * r))[None]
+            x = torch.from_numpy(features.window(feats, s - r, n + 2 * r))[None].to(device)
             y = torch.sigmoid(model(x)["onset"][0, r : r + n])
-            out.append(y.numpy())
+            out.append(y.float().cpu().numpy())
     return np.concatenate(out) if out else np.zeros((0, model.n_outputs), np.float32)
+
+
+def pairs(items, est) -> list:
+    """(estimated, reference) per item for score(), each restricted to the
+    item's accepted regions (performed audio; others are scored whole)."""
+    return [(datasets.in_regions(e, i.regions), datasets.in_regions(i.hits, i.regions)) for e, i in zip(est, items)]
 
 
 def predict_torch(model, fe, items, cache_dir, threshold=0.5):
@@ -183,11 +211,15 @@ def _write_float_wav(path, x, rate):
     Path(path).write_bytes(hdr + b"data" + struct.pack("<I", len(body)) + body)
 
 
-def load_items(a) -> list:
+def load_items(a, stats: dict | None = None) -> list:
+    """Items for --data/--audio/--egmd; stats (if given) gathers the
+    performed-audio counts (datasets._performed_items)."""
     items = []
+    st = {} if stats is None else stats
     for d in a.data or []:
         for audio in a.audio.split(","):
-            items += datasets.read_songdeck(d, audio)
+            items += datasets.read_songdeck(d, audio.strip(), getattr(a, "min_agreement", datasets.MIN_AGREEMENT),
+                                            getattr(a, "min_offset_strength", datasets.MIN_OFFSET_STRENGTH), st)
     if a.egmd:
         items += datasets.read_egmd(a.egmd, a.egmd_limit)
     return items
@@ -195,7 +227,12 @@ def load_items(a) -> list:
 
 def add_data_args(ap):
     ap.add_argument("--data", action="append", help="Song Deck dataset directory (repeatable)")
-    ap.add_argument("--audio", default="stem", help="stem | separated | mix, comma-separated for several (default stem)")
+    ap.add_argument("--audio", default="stem",
+                    help="stem | separated | mix | performed, comma-separated for several (default stem)")
+    ap.add_argument("--min-agreement", type=float, default=datasets.MIN_AGREEMENT,
+                    help="performed audio: use only windows whose drum F against the labels is at least this (default 0.6)")
+    ap.add_argument("--min-offset-strength", type=float, default=datasets.MIN_OFFSET_STRENGTH,
+                    help="performed audio: skip takes whose offset estimate is weaker than this (default 0.2)")
     ap.add_argument("--egmd", help="E-GMD root (holding e-gmd-v1.0.0.csv)")
     ap.add_argument("--egmd-limit", type=int, default=0, help="use about N E-GMD items (spread over the list)")
     ap.add_argument("--cache", default=None, help="feature cache directory (default: <first data dir>/.cache)")
@@ -216,6 +253,8 @@ def main(argv=None):
     ap.add_argument("--binary", help="score the backtrack-surveil binary's output instead of PyTorch")
     ap.add_argument("--threshold", type=float, default=0.5, help="onset threshold (default 0.5, as the binary)")
     ap.add_argument("--json", help="write the report here")
+    ap.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"],
+                    help="PyTorch backend's device (default auto: CUDA, then MPS, then CPU)")
     a = ap.parse_args(argv)
     if not a.data and not a.egmd:
         ap.error("give --data and/or --egmd")
@@ -224,14 +263,26 @@ def main(argv=None):
         ap.error("evaluate scores drum models")
     items = [i for i in load_items(a) if a.split == "all" or i.split == a.split]
     if not items:
-        sys.exit(f"no items in split {a.split}")
+        extra = " (no performed take passed --min-agreement / --min-offset-strength)" if "performed" in a.audio else ""
+        sys.exit(f"no items in split {a.split}{extra}")
     if a.binary:
         est = predict_binary(a.binary, a.model, items, meta["audio.class_notes"], a.threshold)
     else:
+        model.to(pick_device(a.device))
         est = predict_torch(model, fe, items, default_cache(a), a.threshold)
-    report = score(list(zip(est, [i.hits for i in items])), meta["audio.classes"])
-    report.update({"model": str(a.model), "split": a.split, "backend": "binary" if a.binary else "torch"})
-    print(f"{meta.get('general.name')} on {len(items)} {a.split} items ({report['backend']}):")
+    report = score(pairs(items, est), meta["audio.classes"])
+    report.update({"model": str(a.model), "split": a.split, "backend": "binary" if a.binary else "torch",
+                   "audio": a.audio.split(",")})
+    perf = [i for i in items if i.regions is not None]
+    note = ""
+    if perf:
+        acc = sum(datasets.region_seconds(i) for i in perf) / 60
+        report["performed"] = {"accepted_windows_only": True, "items": len(perf), "accepted_minutes": round(acc, 2),
+                               "minutes": round(sum(i.duration for i in perf) / 60, 2),
+                               "min_agreement": a.min_agreement, "min_offset_strength": a.min_offset_strength}
+        note = (f"; performed audio scored only in accepted windows (agreement F >= {a.min_agreement:g}, "
+                f"offset strength >= {a.min_offset_strength:g}): {acc:.1f} min of {len(perf)} takes")
+    print(f"{meta.get('general.name')} on {len(items)} {a.split} items ({report['backend']}){note}:")
     print(table(report))
     if a.json:
         Path(a.json).write_text(json.dumps(report, indent=2))

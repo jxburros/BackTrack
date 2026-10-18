@@ -8,12 +8,22 @@ Song Deck manifest (abridged; the full contract is Song Deck's):
         {"id", "split": train|valid|test, "sample_rate", "duration", "mix": "songs/<id>/mix.wav",
          "stems": [{"track", "stem": "drums", "drums": true, "audio": ..., "midi": ...,
                     "notes": [{"pitch", "start", "end", "velocity"}]}],
-         "separated"?: {"separator", "stems": {"drums": "songs/<id>/separated/drums.wav"}}}]}
+         "separated"?: {"separator", "stems": {"drums": "songs/<id>/separated/drums.wav"}},
+         "performances"?: [{"id", "provider", "model", "separated": {"stems": {"drums": ...}},
+                            "offset", "offset_strength", "agreement",
+                            "windows": [{"start", "end", "shift", "f", ...}]}]}]}
+
+`performances` are ACE-Step covers of the rendered mix (Song Deck's
+`npm run dataset:perform`): audio choice "performed" reads each take's
+separated drums, with the song's hits moved to performance time (note time +
+offset + the window's shift) and only the windows whose agreement F passes
+`min_agreement` kept as the item's `regions` (seconds, performance time).
 """
 
 from __future__ import annotations
 
 import csv
+from bisect import bisect_right
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -46,6 +56,10 @@ class Item:
     hits: list = field(default_factory=list)   # [(seconds, class)]
     source: str = ""                  # licence-record line for audio.sources
     duration: float = 0.0
+    # Accepted stretches [(start, end)] in seconds of this item's audio, or None
+    # for all of it. Training masks the loss outside them; evaluation scores
+    # only inside them.
+    regions: list | None = None
 
 
 def hits_from_notes(notes, mapping=GM_DRUMS) -> tuple[list, int]:
@@ -60,9 +74,67 @@ def hits_from_notes(notes, mapping=GM_DRUMS) -> tuple[list, int]:
     return hits, dropped
 
 
-def read_songdeck(root, audio: str = "stem") -> list[Item]:
+# The record in audio.sources for ACE-Step output (the owner checked ACE-Step's
+# licence for this use on 2026-10-18).
+ACESTEP_LICENCE = "licence checked by the owner 2026-10-18"
+
+MIN_AGREEMENT = 0.6
+MIN_OFFSET_STRENGTH = 0.2
+
+
+def performed_take(perf: dict, hits: list, duration: float, min_agreement: float = MIN_AGREEMENT,
+                   min_offset_strength: float = MIN_OFFSET_STRENGTH):
+    """One performance -> (hits in performance time, accepted regions) or None
+    when the take is rejected (weak offset, or no window passes). Windows are
+    in song time; a hit takes the shift of the window holding it (the nearest
+    window outside them all). A take with no windows counts as one window
+    over the whole song with f = its agreement and no extra shift."""
+    if float(perf.get("offset_strength", 0)) < min_offset_strength:
+        return None
+    offset = float(perf.get("offset", 0))
+    wins = perf.get("windows")
+    if not wins:
+        wins = [{"start": 0.0, "end": max(duration, max((t for t, _ in hits), default=0) + 1), "shift": 0.0,
+                 "f": float(perf.get("agreement", 0))}]
+    wins = sorted(wins, key=lambda w: float(w["start"]))
+    starts = [float(w["start"]) for w in wins]
+    out = []
+    for t, c in hits:
+        k = max(0, bisect_right(starts, t) - 1)
+        out.append((t + offset + float(wins[k].get("shift", 0)), c))
+    out.sort()
+    regions = []
+    for w in wins:
+        if float(w.get("f", 0)) >= min_agreement:
+            d = offset + float(w.get("shift", 0))
+            a, b = float(w["start"]) + d, float(w["end"]) + d
+            if regions and a <= regions[-1][1]:
+                regions[-1] = (regions[-1][0], max(regions[-1][1], b))
+            else:
+                regions.append((max(0.0, a), b))
+    return (out, regions) if regions else None
+
+
+def in_regions(times_classes: list, regions) -> list:
+    """The (time, class) pairs inside regions (all of them when regions is None)."""
+    if regions is None:
+        return list(times_classes)
+    return [(t, c) for t, c in times_classes if any(a <= t < b for a, b in regions)]
+
+
+def region_seconds(item: Item) -> float:
+    if item.regions is None:
+        return item.duration
+    end = item.duration or float("inf")
+    return sum(max(0.0, min(b, end) - a) for a, b in item.regions)
+
+
+def read_songdeck(root, audio: str = "stem", min_agreement: float = MIN_AGREEMENT,
+                  min_offset_strength: float = MIN_OFFSET_STRENGTH, stats: dict | None = None) -> list[Item]:
     """audio: "stem" (the drum stems summed), "separated" (the separated drum
-    stem, songs without one are skipped) or "mix"."""
+    stem, songs without one are skipped), "mix", or "performed" (each
+    performance's separated drums, see the module doc; `stats` gathers how
+    many takes and minutes were accepted)."""
     root = Path(root)
     man = json.loads((root / "manifest.json").read_text())
     if man.get("format") != "songdeck-dataset":
@@ -82,6 +154,11 @@ def read_songdeck(root, audio: str = "stem") -> list[Item]:
             elif s.get("midi"):
                 notes += read_notes(root / s["midi"])
         hits, _ = hits_from_notes(notes)
+        split = song.get("split", "train")
+        split = "valid" if split == "validation" else split
+        if audio == "performed":
+            items += _performed_items(root, man, song, hits, split, min_agreement, min_offset_strength, stats)
+            continue
         if audio == "stem":
             files = [root / s["audio"] for s in drum_stems]
         elif audio == "separated":
@@ -92,10 +169,39 @@ def read_songdeck(root, audio: str = "stem") -> list[Item]:
         elif audio == "mix":
             files = [root / song["mix"]]
         else:
-            raise ValueError(f"unknown audio choice {audio!r} (stem, separated or mix)")
-        split = song.get("split", "train")
-        split = "valid" if split == "validation" else split
+            raise ValueError(f"unknown audio choice {audio!r} (stem, separated, mix or performed)")
         items.append(Item(f"{song['id']}:{audio}", split, files, hits, source, float(song.get("duration", 0))))
+    return items
+
+
+def _performed_items(root, man, song, hits, split, min_agreement, min_offset_strength, stats):
+    st = stats if stats is not None else {}
+    for k in ("takes", "accepted_takes", "missing_audio", "weak_offset", "no_window", "seconds", "accepted_seconds"):
+        st.setdefault(k, 0)
+    st.setdefault("providers", {})
+    items = []
+    duration = float(song.get("duration", 0))
+    for perf in song.get("performances") or []:
+        st["takes"] += 1
+        dur = float(perf.get("duration") or duration)
+        st["seconds"] += dur
+        drums = ((perf.get("separated") or {}).get("stems") or {}).get("drums")
+        if not drums or not (root / drums).exists():
+            st["missing_audio"] += 1
+            continue
+        take = performed_take(perf, hits, duration, min_agreement, min_offset_strength)
+        if take is None:
+            st["weak_offset" if float(perf.get("offset_strength", 0)) < min_offset_strength else "no_window"] += 1
+            continue
+        phits, regions = take
+        provider, model = perf.get("provider", "?"), perf.get("model", "?")
+        source = (f"ACE-Step performances of Song Deck renders ({provider}, {model}), dataset {root.name}; "
+                  f"{ACESTEP_LICENCE}")
+        it = Item(f"{song['id']}:performed:{perf.get('id', len(items))}", split, [root / drums], phits, source, dur, regions)
+        st["accepted_takes"] += 1
+        st["accepted_seconds"] += region_seconds(it)
+        st["providers"][f"{provider} {model}"] = st["providers"].get(f"{provider} {model}", 0) + 1
+        items.append(it)
     return items
 
 
@@ -135,6 +241,9 @@ def summary(items: list[Item]) -> str:
         for i in it:
             for _, c in i.hits:
                 counts[c] += 1
-        out.append(f"{sp}: {len(it)} items, {sum(i.duration for i in it) / 60:.1f} min, hits "
+        acc = sum(region_seconds(i) for i in it if i.regions is not None)
+        out.append(f"{sp}: {len(it)} items, {sum(i.duration for i in it) / 60:.1f} min"
+                   + (f" ({acc / 60:.1f} min of performed windows accepted)" if any(i.regions is not None for i in it) else "")
+                   + ", hits "
                    + " ".join(f"{n}={k}" for n, k in zip(DRUM_CLASSES, counts)))
     return "\n".join(out)

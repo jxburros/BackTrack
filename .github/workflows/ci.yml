@@ -114,3 +114,6 @@ jobs:
           python -m training.parity --binary build/backtrack-surveil --model "$RUNNER_TEMP/toy.gguf"
           python -m training.evaluate --model "$RUNNER_TEMP/toy.gguf" --data "$RUNNER_TEMP/synth" --split all \
             --binary build/backtrack-surveil
+
+      - name: Performed audio (shifted labels, accepted windows, resume; about 20 s)
+        run: python -m training.check_performed --work "$RUNNER_TEMP/perf"

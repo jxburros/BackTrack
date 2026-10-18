@@ -11,7 +11,8 @@ What it matches, and checks it matches:
 - the model graph, tensor names and shapes, and metadata keys:
   [docs/gguf-metadata.md](../docs/gguf-metadata.md).
 
-Needs Python 3.10+, NumPy and PyTorch (CPU is enough); nothing else, no downloads. Run
+Needs Python 3.10+, NumPy and PyTorch (CPU is enough; a CUDA or Apple MPS GPU is used when
+present); nothing else, no downloads. Run
 everything from the repository root (`python3 -m training.<module>`), with the binary built
 (`cmake --build build`).
 
@@ -46,6 +47,7 @@ build/backtrack-surveil song.wav --stem drums --models-dir models -o drums.mid
 | `features.py`      | HCQT features cached on disk (float16, memory-mapped), onset targets, crops                                      |
 | `train_drums.py`   | Training loop and export                                                                                         |
 | `evaluate.py`      | Onset F-measure per class, through PyTorch or through the binary                                                 |
+| `check_performed.py` | Checks training on performed (ACE-Step) audio on a tiny synthetic set: shifted labels, windows, masking, resume (CI) |
 | `midi.py`          | Standard MIDI File reading (through the tempo map) and a minimal writer                                          |
 
 ### Front end
@@ -119,6 +121,31 @@ give one item each. Hits come from each drum stem's `notes` (or its MIDI file), 
 classes: kick {35, 36}, snare {37–40}, toms {41, 43, 45, 47, 48, 50}, hihat_closed {42, 44},
 hihat_open {46}, crash {49, 52, 55, 57}, ride {51, 53, 59}; other notes are dropped.
 
+**Performed audio** (`--audio performed`, combinable: `--audio stem,separated,performed`):
+ACE-Step performances of the songs, added to a dataset by Song Deck's `npm run dataset:perform`
+(`songs[].performances[]` in the manifest). Each take's separated drums
+(`performances[].separated.stems.drums`) is one item, in its song's split, with the song's
+hits moved to performance time: note time + `offset` + the `shift` of the window (in song
+time) holding the note. ACE-Step does not play exactly what was written, so only part of a
+take is trusted:
+
+- a take whose `offset_strength` is below `--min-offset-strength` (default 0.2) is skipped;
+- of the rest, only windows with agreement `f >= --min-agreement` (default 0.6) are used; they
+  become the item's accepted regions (performance time; a take with no `windows` counts as one
+  window with its overall `agreement`);
+- training draws each crop around a random accepted frame and **masks the loss** outside the
+  accepted regions (frames there contribute nothing; crops may cross window edges, so the
+  audio around an accepted frame still serves as context). Items are drawn in proportion to
+  their accepted frames, and an epoch is one pass over the accepted frames;
+- evaluation scores only inside the accepted regions (both reference hits and estimates).
+
+Training prints, at the start, how many takes were used and how many minutes were accepted
+(also per split). `audio.sources` gains one line per dataset and provider/model, e.g.
+"ACE-Step performances of Song Deck renders (ace-step-api, acestep-v15-turbo), dataset
+sd-drums-v1; licence checked by the owner 2026-10-18", and `audio.training` records the inputs
+(`inputs`), the thresholds and the accepted minutes (`performed`). Features for performed audio
+are cached like the others (keyed by the file).
+
 **E-GMD** (`--egmd ROOT`, the directory holding `e-gmd-v1.0.0.csv`): splits from the CSV
 (`validation` is `valid`), the same mapping plus the TD-17's 22 (closed hi-hat edge), 26 (open
 hi-hat edge) and 58 (floor tom rim). It is 444 hours: `--egmd-limit N` uses about N items spread
@@ -139,7 +166,8 @@ it).
 
 ```bash
 python3 -m training.train_drums --data DIR [--data DIR2] [--egmd ROOT --egmd-limit 2000] \
-    --out models/surveil-drums-0.1.0.gguf [--audio stem,separated] [--epochs 30] [--minutes 0]
+    --out models/surveil-drums-0.1.0.gguf [--audio stem,separated,performed] [--epochs 30] [--minutes 0] \
+    [--device auto] [--patience 0] [--resume] [--min-agreement 0.6] [--min-offset-strength 0.2]
 ```
 
 Each step takes random 256-frame crops (`--crop`) with the receptive radius of context each
@@ -155,6 +183,31 @@ split is scored as the binary would pick hits; the best epoch is exported with
 line per dataset, plus `--source`) and `audio.training`. A `.pt` checkpoint next to `--out`
 allows `--resume`; `.history.json` keeps the loss and valid score per epoch.
 
+**Unattended runs.** The checkpoint (`<out>.pt`, with the history) and `<out>.history.json`
+are rewritten atomically after every epoch, so an interrupted run loses at most the epoch in
+progress: rerun the same command with `--resume` (keep `--epochs`, `--batch` and the data the
+same; the learning-rate schedule depends on them). `--resume` with no checkpoint starts from
+scratch. `--patience N` stops when the valid mean class F has not improved for N epochs
+(0, the default, is off); `--minutes M` stops after M minutes. The GGUF is also written
+atomically. The last line is one summary:
+
+    train_drums: OK wrote OUT: best epoch 12/17 (of 30, patience), valid mean class F 0.812, 41.3 min on cuda
+    train_drums: FAILED: <reason>                         (exit code 1, traceback above it)
+    train_drums: INTERRUPTED; ... rerun with --resume     (exit code 130)
+
+and `<out>.summary.json` holds the same as JSON (`ok`, `out`, `best_epoch`, `epochs`,
+`max_epochs`, `valid_mean_class_f`, `stopped`: completed | patience | time limit, `device`,
+`minutes`, `training`, `sources`). Exit code 0 means the GGUF was written.
+
+**Device.** `--device auto` (the default) picks CUDA, then MPS, then CPU; `cpu`, `cuda`, `mps`
+force one (an unavailable one is an error). Features stay NumPy on the CPU and cached. Batches
+are assembled in a background thread from the cached float16 transform (401 bins), copied to
+the device as such (pinned memory on CUDA) and expanded to the 8 × 264 harmonic stack there,
+so the copy is 5.3 times smaller than the model's input and the GPU is not left waiting for
+the data. The default batch is 16 crops on CPU and 64 on a GPU (`--batch` to choose; with 64
+an epoch has a quarter of the steps at the same learning rate, `--batch 16` reproduces the CPU
+schedule). `--threads` sets PyTorch's CPU threads.
+
 Speed on a 4-core CPU (no GPU), default layout: about 9,000 training frames per second with the
 machine to itself, so an epoch over one hour of audio (310k frames) takes about 35 s, plus
 valid scoring (about 0.3 s per minute of audio). Features cost about 0.4 s per minute of
@@ -163,7 +216,8 @@ valid scoring (about 0.3 s per minute of audio). Features cost about 0.4 s per m
 ### Evaluation
 
 ```bash
-python3 -m training.evaluate --model M.gguf --data DIR [--split test] [--binary build/backtrack-surveil] [--json report.json]
+python3 -m training.evaluate --model M.gguf --data DIR [--split test] [--audio stem] [--binary build/backtrack-surveil] \
+    [--json report.json] [--device auto]
 ```
 
 Onset F-measure per class within ±50 ms, as Song Deck's `eval:datasets` measures notes
@@ -173,6 +227,11 @@ class), plus the overall F, the mean F over classes and the timing error of matc
 scored, so what is measured is what ships; without, PyTorch runs the model and
 `evaluate.pick_drums` (a port of `notes.cpp`'s drum picking, checked exact by the parity
 script) picks the hits.
+
+`--audio performed` scores only the accepted windows of each take (same `--min-agreement` and
+`--min-offset-strength` as training); the printed header says so and the JSON gains
+`"performed": {"accepted_windows_only": true, "items", "accepted_minutes", "minutes",
+"min_agreement", "min_offset_strength"}`. Every report carries `"audio"` (the inputs scored).
 
 ## On Song Deck's drum export
 
