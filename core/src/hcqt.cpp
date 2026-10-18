@@ -106,8 +106,9 @@ Hcqt compute_hcqt(const std::vector<float> & mono, const HcqtConfig & cfg, const
     const double f_cap = cfg.top_fraction * cfg.sample_rate / 2.0;
 
     // Assign each computable bin to an octave group; group o runs at
-    // sample_rate / 2^o, where the bin's kernel is at most 2q/top_fraction
-    // samples long, so every group shares one FFT size.
+    // sample_rate / 2^o, so every group shares one FFT size. (A kernel would
+    // be up to 4q/top_fraction samples at its group's lowest bin; the cap at
+    // L - 1 shortens most of them. docs/front-end.md, "Kernels".)
     int n_groups = 0;
     std::vector<int> bin_group(size_t(n_ext), -1);
     for (int e = 0; e < n_ext; e++) {

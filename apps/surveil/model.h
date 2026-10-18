@@ -8,8 +8,12 @@
 //     pool     3x1 conv, stride 3 in frequency -> [88 pitches, frames, channels]
 //     note / onset / offset  1x1, 1x3, 1x3 convs on the pool -> [88, frames] each
 //   drum head (audio.kind = "drums"):
-//     band     dense over (bins x channels)   -> [classes, frames]
-//     onset    1x3 conv in time               -> [classes, frames]
+//     band     dense over (bins x channels)   -> [D, frames]   (D = classes for T0's head)
+//     tconv1.. optional convs in time, relu   -> [channels, frames]
+//     onset    conv in time                   -> [classes, frames]
+//              (one shared 1x3 kernel, or a per-class kernel after tconv)
+//   The trunk may have more layers (conv3, conv4...); each chunk carries the
+//   receptive radius, summed from the kernels, as context.
 //
 // The layout, tensor names and metadata are in docs/gguf-metadata.md.
 #pragma once
@@ -37,6 +41,7 @@ struct ModelSpec {
     int n_outputs = 0;                   // pitches or drum classes
     std::vector<std::string> classes;    // drums
     std::vector<int> class_notes;        // drums: General MIDI note per class
+    int receptive_radius = 0;            // frames each output sees on either side
 
     double frame_rate() const { return double(front.sample_rate) / front.hop; }
 };
@@ -69,8 +74,11 @@ private:
 
 // A placeholder model with the real graph: kind "pitched" or "drums";
 // init "wired" (hand-set weights that turn harmonic energy into notes, so
-// output follows the audio) or "random" (seeded N(0, 0.1)). Returns it as an
-// in-memory GGUF, ready to save or load.
-std::unique_ptr<backtrack::GgufFile> make_placeholder(const std::string & kind, const std::string & init, uint64_t seed);
+// output follows the audio) or "random" (seeded N(0, 0.1)); drum head
+// "shared" (T0's one onset kernel) or "temporal" (the T2 layout with
+// temporal convs, random only). Returns it as an in-memory GGUF, ready to
+// save or load.
+std::unique_ptr<backtrack::GgufFile> make_placeholder(const std::string & kind, const std::string & init, uint64_t seed,
+                                                      const std::string & head = "shared");
 
 } // namespace surveil

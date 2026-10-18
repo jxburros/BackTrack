@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 
 namespace fs = std::filesystem;
@@ -18,12 +19,13 @@ using nlohmann::json;
 namespace surveil {
 
 Result transcribe(const backtrack::Audio & audio, const Model & model, const PickOptions & opt,
-                  const backtrack::Progress & progress) {
+                  const backtrack::Progress & progress, Activations * act_out, backtrack::Hcqt * hcqt_out) {
     const ModelSpec & spec = model.spec();
     progress.step("resample", 0.02);
     std::vector<float> mono = backtrack::resample(backtrack::to_mono(audio), audio.sample_rate, spec.front.sample_rate, progress);
     backtrack::Hcqt hcqt = backtrack::compute_hcqt(mono, spec.front, progress, 0.05, 0.45);
     Activations act = model.run(hcqt, progress, 0.45, 0.9);
+    if (hcqt_out) *hcqt_out = std::move(hcqt);
     progress.step("notes", 0.92);
 
     Result r;
@@ -46,8 +48,51 @@ Result transcribe(const backtrack::Audio & audio, const Model & model, const Pic
         for (const Note & n : r.notes) tn.push_back({n.pitch, n.start, n.end});
         r.key = backtrack::estimate_key(tn);
     }
+    if (act_out) *act_out = std::move(act);
     progress.set("done", 1.0);
     return r;
+}
+
+json activations_json(const Activations & a, const ModelSpec & spec) {
+    auto rows = [&](const std::vector<float> & v, int width) {
+        json out = json::array();
+        for (int t = 0; t < a.frames; t++) out.push_back(std::vector<float>(v.begin() + long(t) * width, v.begin() + long(t + 1) * width));
+        return out;
+    };
+    json j = {{"model", spec.id},
+              {"kind", spec.kind},
+              {"frames", a.frames},
+              {"frame_rate", a.frame_rate},
+              {"outputs", a.outputs},
+              {"receptive_radius", spec.receptive_radius},
+              {"onset", rows(a.onset, a.outputs)}};
+    if (spec.kind == "drums") {
+        j["classes"] = spec.classes;
+        j["class_notes"] = spec.class_notes;
+    } else {
+        j["pitch_min"] = spec.pitch_min;
+        j["bins"] = a.bins;
+        j["note"] = rows(a.note, a.outputs);
+        j["offset"] = rows(a.offset, a.outputs);
+        j["contour"] = rows(a.contour, a.bins);
+    }
+    return j;
+}
+
+std::vector<uint8_t> hcqt_npy(const backtrack::Hcqt & h) {
+    // NPY 1.0: magic, header length, a Python dict literal padded to 64 bytes, then the data.
+    std::string header = "{'descr': '<f4', 'fortran_order': False, 'shape': (" + std::to_string(h.n_harmonics) + ", " +
+                         std::to_string(h.n_frames) + ", " + std::to_string(h.n_bins) + "), }";
+    while ((10 + header.size() + 1) % 64) header += ' ';
+    header += '\n';
+    std::vector<uint8_t> out = {0x93, 'N', 'U', 'M', 'P', 'Y', 1, 0, uint8_t(header.size() & 0xff), uint8_t(header.size() >> 8)};
+    out.insert(out.end(), header.begin(), header.end());
+    for (float v : h.data) {
+        uint32_t u;
+        std::memcpy(&u, &v, 4);
+        for (int b = 0; b < 4; b++) out.push_back(uint8_t(u >> (8 * b)));
+    }
+    return out;
 }
 
 // Rounded to a number of decimals (dividing keeps the shortest printed form).

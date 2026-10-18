@@ -2,8 +2,9 @@
 
 ![HOW IT HEARS: harmonic constant-Q, 8 harmonics x 264 bins, every 256 samples](images/banner-front-end.jpg)
 
-`core/src/hcqt.cpp`. The training code must compute exactly this; the T1 parity check compares
-the two on fixed clips. Settings come from the model's GGUF metadata
+`core/src/hcqt.cpp`. The training code computes exactly this (`training/frontend.py`, resampler
+included); the parity check (`python3 -m training.parity`) compares the two from the same WAV
+files and agrees to about 1e-5 on the 0..1 scale. Settings come from the model's GGUF metadata
 ([gguf-metadata.md](./gguf-metadata.md)); defaults in brackets.
 
 ## Input
@@ -42,9 +43,16 @@ spectrum. The picture is computed from the layout above for A2 (110 Hz) with eig
 - for `m = −(N−1)/2 … (N−1)/2`: `w(m) = ½ (1 + cos(2π m / (N + 1)))`,
   `g(m) = w(m) e^{2πi f m / r} / Σw`.
 
-`L` = the next power of two ≥ `ceil(2Q / top_fraction) + 2` [256], shared by all groups. The
+`L` = the next power of two ≥ `ceil(2Q / top_fraction) + 2` [128; 32 at the drums' filter scale
+0.25], shared by all groups. A group spans an octave, so `Q r / f` reaches `4Q / top_fraction`
+at its lowest bin: the `L − 1` cap applies to most bins (293 of the 343 extended bins at the
+defaults), whose kernels are `L − 1` samples at their group's rate, shorter than `Q` asks. The
 kernel is placed at `L/2 + m` in an `L`-point buffer and transformed; spectral coefficients below
 `1e-3 ×` the largest are dropped (the sparse kernel).
+
+At filter scale 0.25 (drums) the kernels last about 180 ms at 55 Hz, 45 ms at 220 Hz and 11 ms
+or less above 1 kHz, against 11.6 ms frames: the upper bins and harmonic channels place a hit
+to a frame, and the low bins say what it was.
 
 ## Octaves
 

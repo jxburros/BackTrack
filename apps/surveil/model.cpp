@@ -18,8 +18,7 @@ namespace surveil {
 namespace {
 
 constexpr const char * kArch = "surveil-cnn";
-constexpr int kChunk = 512;   // frames per model call
-constexpr int kContext = 8;   // frames of context each side (receptive radius is 3)
+constexpr int kChunk = 512;   // frames per model call (plus the receptive radius each side)
 
 // Element (kw, kh, ci, co) of a conv kernel with ne = [KW, KH, Cin, Cout].
 float & at4(ggml_tensor * t, int kw, int kh, int ci, int co) {
@@ -39,6 +38,10 @@ struct Model::Impl {
     ggml_context * ctx = nullptr;          // weight tensors (no data; data lives in buf)
     ggml_backend_buffer_t buf = nullptr;
     std::map<std::string, ggml_tensor *> w;
+    int n_trunk = 2;                       // conv1, conv2, then optional conv3...
+    int n_tconv = 0;                       // drums: optional temporal convs tconv1... after the band
+    bool shared_onset = true;              // drums: one [1, kh, 1, 1] onset kernel for every class
+    int context = 0;                       // frames of context each side: the receptive radius
 
     ggml_tensor * get(const std::string & name) const {
         auto it = w.find(name);
@@ -113,25 +116,44 @@ std::unique_ptr<Model> Model::load(std::unique_ptr<GgufFile> file, const std::st
     auto check = [&](bool ok, const std::string & what) {
         if (!ok) throw BadInput(f.path() + ": " + what + " has the wrong shape");
     };
+    // The trunk is conv1, conv2 and any further conv3, conv4... (each odd,
+    // reading the previous layer's channels); the receptive radius in
+    // frames, summed from the time kernels, sets the context each chunk needs.
     const int H = int(fc.harmonics.size());
-    ggml_tensor * c1 = need("conv1.weight"), * c2 = need("conv2.weight");
-    check(c1->ne[2] == H && c1->ne[0] % 2 == 1 && c1->ne[1] % 2 == 1, "conv1.weight");
-    check(c2->ne[2] == c1->ne[3] && c2->ne[0] % 2 == 1 && c2->ne[1] % 2 == 1, "conv2.weight");
-    check(need("conv1.bias")->ne[0] == c1->ne[3], "conv1.bias");
-    check(need("conv2.bias")->ne[0] == c2->ne[3], "conv2.bias");
-    const int64_t trunk = c2->ne[3];
+    std::vector<std::string> used;
+    auto odd = [](const ggml_tensor * t) { return t->ne[0] % 2 == 1 && t->ne[1] % 2 == 1; };
+    auto layer = [&](const std::string & name, int64_t c_in, bool time_only) {
+        ggml_tensor * k = need(name + ".weight");
+        check(k->ne[2] == c_in && odd(k) && (!time_only || k->ne[0] == 1), name + ".weight");
+        check(need(name + ".bias")->ne[0] == k->ne[3] && ggml_nelements(im.get(name + ".bias")) == k->ne[3], name + ".bias");
+        used.push_back(name + ".weight");
+        used.push_back(name + ".bias");
+        return k;
+    };
+    int radius = 0;
+    int64_t trunk = H;
+    im.n_trunk = 0;
+    for (int i = 1; i <= 2 || im.get("conv" + std::to_string(i) + ".weight"); i++) {
+        ggml_tensor * k = layer("conv" + std::to_string(i), trunk, false);
+        trunk = k->ne[3];
+        radius += int(k->ne[1] / 2);
+        im.n_trunk = i;
+    }
     if (s.kind == "pitched") {
         const int bps = fc.bins_per_semitone;
+        ggml_tensor * contour = layer("contour", trunk, false);
+        check(contour->ne[3] == 1, "contour.weight");
         ggml_tensor * pool = need("pool.weight");
-        check(need("contour.weight")->ne[2] == trunk && im.get("contour.weight")->ne[3] == 1, "contour.weight");
         check(pool->ne[0] == bps && pool->ne[1] == 1 && pool->ne[2] == trunk, "pool.weight");
+        check(need("pool.bias")->ne[0] == pool->ne[3], "pool.bias");
+        used.insert(used.end(), {"pool.weight", "pool.bias"});
+        int head_radius = 0;
         for (const char * head : {"note", "onset", "offset"}) {
-            ggml_tensor * t = need(std::string(head) + ".weight");
-            check(t->ne[0] == 1 && t->ne[1] % 2 == 1 && t->ne[2] == pool->ne[3] && t->ne[3] == 1, std::string(head) + ".weight");
-            need(std::string(head) + ".bias");
+            ggml_tensor * t = layer(head, pool->ne[3], true);
+            check(t->ne[3] == 1, std::string(head) + ".weight");
+            head_radius = std::max(head_radius, int(t->ne[1] / 2));
         }
-        need("contour.bias");
-        need("pool.bias");
+        radius += std::max(int(contour->ne[1] / 2), head_radius);
         s.n_outputs = fc.n_bins / bps;
         s.pitch_min = int(f.number("audio.pitch_min", 21));
     } else {
@@ -141,13 +163,36 @@ std::unique_ptr<Model> Model::load(std::unique_ptr<GgufFile> file, const std::st
             throw BadInput(f.path() + ": drum models need audio.classes and audio.class_notes of the same length");
         for (double n : notes) s.class_notes.push_back(int(n));
         s.n_outputs = int(s.classes.size());
+        // band: dense over (bins x trunk channels) to D channels; then optional
+        // temporal convs tconv1... ([1, kh, C_in, C_out]); then the onset head,
+        // either T0's one shared [1, kh, 1, 1] kernel (D = classes, no tconv)
+        // or a full [1, kh, C, classes] kernel.
         ggml_tensor * band = need("band.weight");
-        check(band->ne[0] == fc.n_bins * trunk && band->ne[1] == s.n_outputs, "band.weight");
-        check(need("band.bias")->ne[0] == s.n_outputs, "band.bias");
+        check(band->ne[0] == fc.n_bins * trunk && ggml_n_dims(band) <= 2, "band.weight");
+        check(need("band.bias")->ne[0] == band->ne[1] && ggml_nelements(im.get("band.bias")) == band->ne[1], "band.bias");
+        used.insert(used.end(), {"band.weight", "band.bias"});
+        int64_t ch = band->ne[1];
+        im.n_tconv = 0;
+        for (int i = 1; im.get("tconv" + std::to_string(i) + ".weight"); i++) {
+            ggml_tensor * k = layer("tconv" + std::to_string(i), ch, true);
+            ch = k->ne[3];
+            radius += int(k->ne[1] / 2);
+            im.n_tconv = i;
+        }
         ggml_tensor * onset = need("onset.weight");
-        check(onset->ne[0] == 1 && onset->ne[1] % 2 == 1 && onset->ne[2] == 1 && onset->ne[3] == 1, "onset.weight");
+        im.shared_onset = im.n_tconv == 0 && ch == s.n_outputs && onset->ne[2] == 1 && onset->ne[3] == 1;
+        check(onset->ne[0] == 1 && onset->ne[1] % 2 == 1 && (im.shared_onset || (onset->ne[2] == ch && onset->ne[3] == s.n_outputs)),
+              "onset.weight");
         check(need("onset.bias")->ne[0] == s.n_outputs, "onset.bias");
+        used.insert(used.end(), {"onset.weight", "onset.bias"});
+        radius += int(onset->ne[1] / 2);
     }
+    // A tensor the graph does not read means a newer layout than this binary builds.
+    for (auto & [name, t] : im.w)
+        if (std::find(used.begin(), used.end(), name) == used.end())
+            throw BadInput(f.path() + ": unexpected tensor " + name + " (a newer model layout?)");
+    im.context = radius;
+    s.receptive_radius = radius;
     if (s.stems.empty()) s.stems = s.kind == "drums" ? std::vector<std::string>{"drums"} : std::vector<std::string>{"mix", "other"};
     return m;
 }
@@ -157,10 +202,10 @@ Activations Model::run(const backtrack::Hcqt & in, const backtrack::Progress & p
     const ModelSpec & s = spec_;
     if (in.n_bins != s.front.n_bins || in.n_harmonics != int(s.front.harmonics.size()))
         throw BadInput("front-end output does not match the model");
-    const int T = in.n_frames, B = in.n_bins, H = in.n_harmonics, W = kChunk + 2 * kContext;
+    const int T = in.n_frames, B = in.n_bins, H = in.n_harmonics, W = kChunk + 2 * im.context;
     const bool pitched = s.kind == "pitched";
 
-    ggml_init_params params{ggml_tensor_overhead() * 96 + ggml_graph_overhead(), nullptr, true};
+    ggml_init_params params{ggml_tensor_overhead() * size_t(96 + 16 * (im.n_trunk + im.n_tconv)) + ggml_graph_overhead(), nullptr, true};
     ggml_context * ctx = ggml_init(params);
     ggml_tensor * x = ggml_new_tensor_4d(ctx, GGML_TYPE_F32, B, W, H, 1);
     ggml_set_name(x, "input");
@@ -174,8 +219,8 @@ Activations Model::run(const backtrack::Hcqt & in, const backtrack::Progress & p
         return ggml_add(ctx, y, ggml_reshape_4d(ctx, b, 1, 1, b->ne[0], 1));
     };
 
-    ggml_tensor * h = ggml_relu(ctx, conv("conv1", x, 1));
-    h = ggml_relu(ctx, conv("conv2", h, 1));
+    ggml_tensor * h = x;
+    for (int i = 1; i <= im.n_trunk; i++) h = ggml_relu(ctx, conv(("conv" + std::to_string(i)).c_str(), h, 1));
 
     std::vector<std::pair<ggml_tensor *, std::vector<float> *>> outs;
     Activations a;
@@ -198,10 +243,22 @@ Activations Model::run(const backtrack::Hcqt & in, const backtrack::Progress & p
         ggml_tensor * flat = ggml_cont(ctx, ggml_permute(ctx, h, 0, 2, 1, 3));  // [B, C, W]
         flat = ggml_reshape_2d(ctx, flat, flat->ne[0] * flat->ne[1], flat->ne[2]);
         ggml_tensor * band = ggml_relu(ctx, ggml_add(ctx, ggml_mul_mat(ctx, im.get("band.weight"), flat), im.get("band.bias")));
-        band = ggml_reshape_4d(ctx, band, s.n_outputs, W, 1, 1);
-        ggml_tensor * k = im.get("onset.weight");
-        ggml_tensor * on = ggml_conv_2d(ctx, k, band, 1, 1, 0, int(k->ne[1] / 2), 1, 1);
-        on = ggml_add(ctx, on, ggml_reshape_4d(ctx, im.get("onset.bias"), s.n_outputs, 1, 1, 1));
+        ggml_tensor * on = nullptr;
+        if (im.shared_onset) {
+            // One kernel slides along time for every class: [classes, W] as a one-channel image.
+            band = ggml_reshape_4d(ctx, band, s.n_outputs, W, 1, 1);
+            ggml_tensor * k = im.get("onset.weight");
+            on = ggml_conv_2d(ctx, k, band, 1, 1, 0, int(k->ne[1] / 2), 1, 1);
+            on = ggml_add(ctx, on, ggml_reshape_4d(ctx, im.get("onset.bias"), s.n_outputs, 1, 1, 1));
+        } else {
+            // Temporal convs over the band channels: [D, W] to [1, W, D] (width 1,
+            // time as height, channels), then back to [classes, W].
+            ggml_tensor * z = ggml_cont(ctx, ggml_transpose(ctx, band));
+            z = ggml_reshape_4d(ctx, z, 1, W, band->ne[0], 1);
+            for (int i = 1; i <= im.n_tconv; i++) z = ggml_relu(ctx, conv(("tconv" + std::to_string(i)).c_str(), z, 1));
+            z = conv("onset", z, 1);
+            on = ggml_cont(ctx, ggml_transpose(ctx, ggml_reshape_2d(ctx, z, W, s.n_outputs)));
+        }
         outs = {{ggml_sigmoid(ctx, on), &a.onset}};
     }
 
@@ -226,7 +283,7 @@ Activations Model::run(const backtrack::Hcqt & in, const backtrack::Progress & p
             const int start = c * kChunk;
             for (int hh = 0; hh < H; hh++) {
                 for (int w = 0; w < W; w++) {
-                    int t = start - kContext + w;
+                    int t = start - im.context + w;
                     float * dst = &host[(size_t(hh) * W + w) * B];
                     if (t < 0 || t >= T) std::fill(dst, dst + B, 0.0f);
                     else std::copy_n(&in.data[(size_t(hh) * T + t) * B], B, dst);
@@ -239,8 +296,8 @@ Activations Model::run(const backtrack::Hcqt & in, const backtrack::Progress & p
                 const int width = int(t->ne[0]);  // outputs, or bins for the contour
                 out_host.resize(size_t(width) * W);
                 ggml_backend_tensor_get(t, out_host.data(), 0, out_host.size() * sizeof(float));
-                for (int w = kContext; w < kContext + kChunk; w++) {
-                    int frame = start - kContext + w;
+                for (int w = im.context; w < im.context + kChunk; w++) {
+                    int frame = start - im.context + w;
                     if (frame >= T) break;
                     std::copy_n(&out_host[size_t(w) * width], width, &(*dst)[size_t(frame) * width]);
                 }
@@ -261,10 +318,13 @@ Activations Model::run(const backtrack::Hcqt & in, const backtrack::Progress & p
 // Placeholder models
 // ---------------------------------------------------------------------------
 
-std::unique_ptr<GgufFile> make_placeholder(const std::string & kind, const std::string & init, uint64_t seed) {
+std::unique_ptr<GgufFile> make_placeholder(const std::string & kind, const std::string & init, uint64_t seed,
+                                           const std::string & head) {
     if (kind != "pitched" && kind != "drums") throw BadInput("placeholder kind must be 'pitched' or 'drums'");
     if (init != "wired" && init != "random") throw BadInput("placeholder init must be 'wired' or 'random'");
-    const bool pitched = kind == "pitched";
+    if (head != "shared" && head != "temporal") throw BadInput("placeholder head must be 'shared' or 'temporal'");
+    const bool pitched = kind == "pitched", temporal = head == "temporal";
+    if (temporal && (pitched || init != "random")) throw BadInput("the temporal head is for random drum placeholders");
     backtrack::HcqtConfig fc;
     // Drums need time resolution more than pitch resolution: a kick at 55 Hz
     // would otherwise sit under a 0.9 s kernel.
@@ -303,6 +363,18 @@ std::unique_ptr<GgufFile> make_placeholder(const std::string & kind, const std::
         onset_b = make("onset.bias", 1);
         offset = make("offset.weight", 1, 3, C3, 1);
         offset_b = make("offset.bias", 1);
+    } else if (temporal) {
+        // The T2 drum layout (training/model.py, DRUM_LAYOUT): band to D
+        // channels, two 9-frame temporal convs, a per-class 5-frame onset kernel.
+        const int D = 32;
+        band = make("band.weight", int64_t(B) * C2, D);
+        make("band.bias", D);
+        make("tconv1.weight", 1, 9, D, D);
+        make("tconv1.bias", D);
+        make("tconv2.weight", 1, 9, D, D);
+        make("tconv2.bias", D);
+        onset = make("onset.weight", 1, 5, D, n_cls);
+        onset_b = make("onset.bias", n_cls);
     } else {
         band = make("band.weight", int64_t(B) * C2, n_cls);
         make("band.bias", n_cls);
@@ -372,7 +444,8 @@ std::unique_ptr<GgufFile> make_placeholder(const std::string & kind, const std::
 
     gguf_context * g = gguf_init_empty();
     gguf_set_val_str(g, "general.architecture", kArch);
-    gguf_set_val_str(g, "general.name", pitched ? "Surveil placeholder (pitched)" : "Surveil placeholder (drums)");
+    gguf_set_val_str(g, "general.name", pitched ? "Surveil placeholder (pitched)"
+                                                : temporal ? "Surveil placeholder (drums, temporal head)" : "Surveil placeholder (drums)");
     gguf_set_val_str(g, "general.version", "0.0.1");
     gguf_set_val_str(g, "general.license", "MIT");
     gguf_set_val_str(g, "audio.task", "transcribe");

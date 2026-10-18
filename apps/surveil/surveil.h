@@ -32,12 +32,23 @@ struct Result {
     double seconds = 0;          // audio duration
 };
 
+// activations / hcqt, when given, receive the model's raw likelihoods and
+// its input (for the training code's parity check).
 Result transcribe(const backtrack::Audio & audio, const Model & model, const PickOptions & options,
-                  const backtrack::Progress & progress = {});
+                  const backtrack::Progress & progress = {}, Activations * activations = nullptr,
+                  backtrack::Hcqt * hcqt = nullptr);
 
 // Song Deck's TranscriptionBridgeResponse, plus "model".
 nlohmann::json result_json(const Result & result, bool with_bends);
 std::vector<uint8_t> result_midi(const Result & result, const PickOptions & options);
+
+// The raw likelihoods as JSON (training/README.md, "Activations"):
+// {"model", "kind", "frames", "frame_rate", "outputs", "receptive_radius",
+//  "classes"/"class_notes" (drums) or "pitch_min" and "bins" (pitched),
+//  "onset": [[...outputs] per frame], and for pitched "note", "offset", "contour"}.
+nlohmann::json activations_json(const Activations & activations, const ModelSpec & spec);
+// The front end's output as a NumPy .npy file: float32, shape [harmonics, frames, bins].
+std::vector<uint8_t> hcqt_npy(const backtrack::Hcqt & hcqt);
 
 // The context object of the transcription contract:
 // {"key"?: str, "tempo"?: number, "chords"?: [{"symbol", "start", "end"}], "program"?: int}.
