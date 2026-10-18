@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en" data-theme="xerox-riot">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BackTrack reference screens</title>
+<!-- Preview only. The shipped page bundles these fonts locally. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Big+Shoulders+Stencil+Display:wght@900&family=Permanent+Marker&family=Space+Mono:wght@400;700&family=VT323&display=swap">
+<link rel="stylesheet" href="backtrack.css">
+<style>
+  /* Layout for this preview page only. */
+  main { max-width: 1100px; margin: 0 auto; padding: var(--bt-s6) var(--bt-margin); }
+  .row { display: flex; gap: var(--bt-s4); align-items: center; flex-wrap: wrap; }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: var(--bt-s4); margin: var(--bt-s5) 0; }
+  .head { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--bt-s4); flex-wrap: wrap; }
+  @media (max-width: 720px) { .tiles { grid-template-columns: 1fr; } .bt-stem { grid-template-columns: 1fr; padding: var(--bt-s3); } }
+</style>
+</head>
+<body>
+<header class="bt-appbar">
+  <span class="bt-appbar__brand">BACKTRACK</span>
+  <nav><a href="#explode">Explode</a><a href="#surveil">Surveil</a><a href="#runs">Runs</a></nav>
+</header>
+<main>
+  <div class="head">
+    <h1 class="bt-shout bt-toner bt-tilt-l2">Drop a track.</h1>
+    <span class="bt-scrawl" aria-hidden="true">we'll take it apart.</span>
+  </div>
+  <div style="position:relative; margin-top: var(--bt-s5)">
+    <span class="bt-tape" style="left:-20px; top:-14px" aria-hidden="true"></span>
+    <label class="bt-dropzone bt-torn">WAV / FLAC / MP3 — or click to pick<input type="file" hidden></label>
+  </div>
+  <div class="tiles">
+    <a class="bt-tile bt-tile--explode" href="#explode"><div class="bt-tile__name">EXPLODE</div><div class="bt-tile__line">split into stems</div></a>
+    <a class="bt-tile bt-tile--surveil" href="#surveil"><div class="bt-tile__name">SURVEIL</div><div class="bt-tile__line">turn it into MIDI</div></a>
+  </div>
+  <div class="row">
+    <button class="bt-btn">Rip it →</button>
+    <button class="bt-btn bt-btn--ghost">Cancel</button>
+    <span class="bt-stamp">Done</span>
+    <span class="bt-caption">runs on your machine. nothing leaves it.</span>
+  </div>
+</main>
+<template id="explode-tpl">
+<main>
+  <section class="bt-panel">
+    <div class="bt-hazard" aria-hidden="true"></div>
+    <div style="padding: var(--bt-s5)">
+      <div class="head">
+        <h1 class="bt-app-title bt-toner">EXPLODE</h1>
+        <div><div class="bt-label">song.wav / 3:41 / 44.1k stereo</div><div class="bt-caption">4 stems. sums back to the mix.</div></div>
+      </div>
+      <div style="margin-top: var(--bt-s6)">
+        <div class="bt-stem" data-stem="vocals"><span class="bt-stem__name">Vocals</span><canvas class="bt-stem__wave" data-seed="1"></canvas>
+          <div class="bt-ms"><button aria-pressed="false" aria-label="Mute vocals">M</button><button aria-pressed="true" aria-label="Solo vocals">S</button></div></div>
+        <div class="bt-stem" data-stem="drums"><span class="bt-stem__name">Drums</span><canvas class="bt-stem__wave" data-seed="2"></canvas>
+          <div class="bt-ms"><button aria-pressed="false" aria-label="Mute drums">M</button><button aria-pressed="false" aria-label="Solo drums">S</button></div></div>
+        <div class="bt-stem" data-stem="bass"><span class="bt-stem__name">Bass</span><canvas class="bt-stem__wave" data-seed="3"></canvas>
+          <div class="bt-ms"><button aria-pressed="false" aria-label="Mute bass">M</button><button aria-pressed="false" aria-label="Solo bass">S</button></div></div>
+      </div>
+      <div style="margin-top: var(--bt-s5)">
+        <div class="bt-progress" role="progressbar" aria-valuenow="64" aria-valuemin="0" aria-valuemax="100"><div class="bt-progress__bar" style="width:64%"></div></div>
+        <div class="row" style="justify-content: space-between">
+          <span class="bt-progress__meta">CHUNK 14/22 • PASS 2/2 (flip + swap)</span>
+          <span class="row"><span class="bt-scrawl" aria-hidden="true">boom.</span><button class="bt-btn bt-btn--detonate">Detonate</button></span>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+</template>
+<template id="surveil-tpl">
+<main>
+  <section class="bt-screen" style="padding: var(--bt-s5)">
+    <div class="head">
+      <h1 class="bt-app-title">SURVEIL</h1>
+      <div style="text-align:right"><span class="bt-rec">REC</span><div class="bt-readout bt-muted">CAM 02 2026-10-18 00:03:14:22</div></div>
+    </div>
+    <div class="bt-readout" style="margin-top: var(--bt-s4)">CASE FILE: bass.mid</div>
+    <div class="bt-readout bt-muted" style="font-size:26px">SUBJECT bass (mono)  KEY E minor  TEMPO 128  SOURCE <span class="bt-redact" title="unknown"></span></div>
+    <div class="bt-roll" style="margin-top: var(--bt-s4)">
+      <div class="bt-note" style="left:2%;top:200px;width:7%" data-conf="low"></div>
+      <div class="bt-note" style="left:9.5%;top:200px;width:5%"></div>
+      <div class="bt-note" style="left:15%;top:225px;width:5%"></div>
+      <div class="bt-note" style="left:26%;top:150px;width:5%" data-conf="low"></div>
+      <div class="bt-note" style="left:32%;top:150px;width:10%"></div>
+      <div class="bt-note" style="left:50%;top:250px;width:5%"></div>
+      <div class="bt-note" style="left:62%;top:250px;width:12%" data-conf="low"></div>
+      <div class="bt-note" style="left:80%;top:100px;width:8%"></div>
+    </div>
+    <div class="row" style="margin-top: var(--bt-s4)">
+      <button class="bt-btn bt-btn--ghost">[ Tap the line ]</button>
+      <button class="bt-btn">Export .mid</button>
+      <span class="bt-readout">NOTES 212 CONF 0.87</span>
+    </div>
+  </section>
+</main>
+</template>
+<script src="waveform.js"></script>
+<script>
+  // Preview helper: render the same body in each theme via ?theme=
+  const t = new URLSearchParams(location.search).get("theme");
+  if (t === "blast-zone") document.body.innerHTML = document.getElementById("explode-tpl").innerHTML;
+  if (t === "wiretap") document.body.innerHTML = document.getElementById("surveil-tpl").innerHTML;
+  if (t) document.documentElement.dataset.theme = t;
+  document.querySelectorAll("canvas.bt-stem__wave").forEach((c) => {
+    const seed = Number(c.dataset.seed);
+    let x = seed * 9301;
+    const rand = () => ((x = (x * 9301 + 49297) % 233280) / 233280);
+    const peaks = Array.from({ length: 400 }, (_, i) => 0.3 + 0.7 * Math.abs(Math.sin(i / 400 * Math.PI * (2 + seed))) * rand());
+    drawBars(c, peaks);
+  });
+</script>
+</body>
+</html>
