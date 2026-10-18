@@ -48,6 +48,7 @@ build/backtrack-surveil song.wav --stem drums --models-dir models -o drums.mid
 | `train_drums.py`   | Training loop and export                                                                                         |
 | `evaluate.py`      | Onset F-measure per class, through PyTorch or through the binary                                                 |
 | `check_performed.py` | Checks training on performed (ACE-Step) audio on a tiny synthetic set: shifted labels, windows, masking, resume (CI) |
+| `pipeline.py`      | The whole run in one command: render, perform, train, evaluate, parity, report; resumable and schedulable ([below](#the-pipeline-one-command)) |
 | `midi.py`          | Standard MIDI File reading (through the tempo map) and a minimal writer                                          |
 
 ### Front end
@@ -251,6 +252,92 @@ about 5.5 minutes per epoch on 4 CPU cores plus about 30 s of valid scoring. The
 for both inputs is 2.6 GB (`<data>/.cache`; computing it took about 4.5 minutes). Percussion
 outside the 7 classes (tambourine, cowbell, congas...) stays in the audio with no label, so the
 model learns to ignore it.
+
+## The pipeline: one command
+
+[docs/training-at-home.md](../docs/training-at-home.md) is the step-by-step guide (hardware,
+installing everything, ACE-Step, a first small run, automation, troubleshooting). In short:
+
+```bash
+cp training/pipeline.example.json ~/backtrack-training/pipeline.json      # then edit the paths
+python3 -m training.pipeline --config ~/backtrack-training/pipeline.json --dry-run   # prints every command
+python3 -m training.pipeline --config ~/backtrack-training/pipeline.json
+python3 -m training.pipeline --config ~/backtrack-training/pipeline.json --run latest   # resume a failed run
+python3 -m training.pipeline schedule --print linux|macos|windows --config ~/backtrack-training/pipeline.json
+```
+
+Steps, in order (`--steps` picks some; with `--run`, the steps named run again even if done):
+
+| Step       | What runs                                                                                                                       |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `render`   | Song Deck's `npm run dataset:render -- --skip-existing` into `dataset`, `render.chunk` songs at a time: songs already there (and their performances) are kept, missing ones rendered, and Song Deck refuses if the options differ from the dataset's. After each chunk, separated stems other than `keep_separated` are deleted. |
+| `perform`  | Song Deck's `npm run dataset:perform -- --skip-existing` (ACE-Step plays the songs), with `--judge backtrack-surveil=<url>` when a trained model exists (`perform.judge`). Starts ACE-Step first when `perform.server.command` is set and nothing answers, and stops it afterwards, so training gets the GPU. Exit 1 (some takes failed) is a warning when `allow_failed_takes`; the next run retries them. Exit 3 (ACE-Step unreachable) stops the run unless `perform.optional`. |
+| `train`    | `python3 -m training.train_drums` into `runs/<id>/<file_stem>-<version>.gguf`. Skipped when the data, the `train`/`model` settings and the BackTrack commit are the same as the last finished run (`skip_if_unchanged`; `--force` trains anyway). On a resumed run, `--resume` continues the checkpoint only if every argument is the same. |
+| `evaluate` | `python3 -m training.evaluate --binary` on the separated test split and on the performed test windows (`eval-separated.json`, `eval-performed.json`), the same for `runs/best` (`eval-best-*.json`), and Song Deck's `npm run eval:datasets -- --dataset songdeck --input separated --tasks transcribe --transcriber internal,backtrack-surveil=<url>` (`eval-songdeck.json`) with this run's model served by `backtrack-surveil serve --models-dir runs/<id>/serve-models` on a free port. No performed take passing the thresholds in the test split is not an error. |
+| `parity`   | `python3 -m training.parity --binary ... --model <this run's model>`.                                                           |
+| `report`   | `report.md` and `report.json`; copies the model to `runs/best/` when it beats the previous best (re-scored on today's test split) and parity passed. `weights/` is never written. |
+| `rejudge`  | Only after a promotion (`perform.rejudge_after_promotion`): Song Deck's `dataset:perform --rejudge --judge backtrack-surveil=<url>` with the new best model served, re-scoring the takes' windows without ACE-Step. |
+
+Each step's output goes to the console and `runs/<id>/<step>.log`; `runs/<id>/state.json` records
+what is done. The first failing step stops the run with exit code 1 and prints the command
+that resumes it. `runs/pipeline.lock` keeps two runs from overlapping (a lock left by a process
+that is gone is removed). `--dry-run` creates nothing and prints every command.
+
+### The config, field by field
+
+JSON has no comments, so they are here. Keys starting with `_` are ignored (use `"_comment"`);
+an unknown key is an error. Relative paths are relative to the BackTrack checkout; `~` works.
+`null` means "leave it to the script's default".
+
+| Field | Example default | Meaning |
+| --- | --- | --- |
+| `songdeck` | `../Song-Deck` | Song Deck checkout (with `npm install` and `npm run soundbank:build` done) |
+| `backtrack_binary` | `build/backtrack-surveil` | the built binary (`.exe` and `build/Release/` are tried on Windows) |
+| `python`, `npm` | `null` | the Python that runs training (default: the one running the pipeline) and npm (default: found on PATH, `npm.cmd` on Windows) |
+| `dataset` | `~/backtrack-training/sd-drums` | the dataset directory (Song Deck's layout); the feature cache goes in its `.cache` |
+| `runs_dir` | `~/backtrack-training/runs` | one folder per run, `best/`, the lock and `scheduled.log` |
+| `low_priority` | `true` | run the steps at low CPU priority (nice 10 / below normal), so the computer stays usable |
+| `model.name`, `.version`, `.file_stem` | `Surveil drums`, `0.1.0`, `surveil-drums` | `general.name`, `general.version`, and the file name `<file_stem>-<version>.gguf` (its stem is the model id) |
+| `render.songs` | `400` | songs in the dataset; raise it to add songs |
+| `render.grow_per_run`, `.max_songs` | `0`, `0` | add this many songs on every run (nightly growth), up to `max_songs` (0: no cap) |
+| `render.seconds` | `60` | cut songs to their first seconds (`null`: whole songs, about 3× the disk and time) |
+| `render.genres` | `null` | genre ids (`null`: every built-in genre, used in turn) |
+| `render.seed` | `1000` | song *i* uses seed + *i*; keep it for the life of a dataset |
+| `render.only_stems` | `drums` | stems to write (the mix is always full) |
+| `render.separate`, `.keep_separated` | `true`, `["drums"]` | also write the built-in separator's stems of the mix (training's `separated` input), and keep only these |
+| `render.chunk` | `50` | songs per `dataset:render` call: the four separated stems of at most one chunk wait for pruning, and an interrupted render keeps every finished chunk |
+| `render.sample_rate`, `.jobs`, `.soundbank`, `.extra_args` | `44100`, `null`, `null`, `[]` | render rate; songs in parallel (default CPU cores − 1); sound bank folder; more `dataset:render` options |
+| `perform.enabled` | `true` | `false`: no ACE-Step (train on renders only; drop `performed` from `train.audio` too) |
+| `perform.provider`, `.url` | `ace-step-api`, `http://127.0.0.1:8001` | ACE-Step 1.5's own API server; `ace-step-local` with `http://127.0.0.1:8810` for the v1 bridge |
+| `perform.strength` | `0.35` | how far ACE-Step may depart from the song (lower follows it more closely, and labels fit better) |
+| `perform.takes` | `1` | performances per song (each has its own seed); raise it later to add takes |
+| `perform.split`, `.songs`, `.seed` | all splits, `null`, `null` | which splits get performances, at most this many songs, the seed (default: the dataset's) |
+| `perform.window`, `.min_offset_strength`, `.timeout_minutes` | `4`, `0.2`, `20` | agreement window (s), weakest alignment kept, per-take timeout |
+| `perform.allow_failed_takes` | `true` | a run with a few failed takes still trains (they are listed in the report and retried next run) |
+| `perform.optional` | `false` | `true`: when ACE-Step cannot be reached, carry on without new performances instead of stopping |
+| `perform.judge` | `auto` | who scores each take's windows: `auto` serves the best model (`runs/best`, else `weights/surveil-drums-*.gguf`) with `backtrack-surveil serve` and passes `--judge backtrack-surveil=<url>` (falls back to the built-in transcription when there is no model or Song Deck has no `--judge`); `internal`; or `backtrack-surveil=<url>` for a server you run |
+| `perform.rejudge_after_promotion` | `true` | the `rejudge` step: after a model is promoted, `dataset:perform --rejudge --judge backtrack-surveil=<url>` re-scores every take with it (no ACE-Step), so the next run trains on better-judged windows |
+| `perform.server.command`, `.cwd` | `null` | e.g. `["uv", "run", "acestep-api"]` in your ACE-Step-1.5 folder: started when nothing answers at `url` |
+| `perform.server.startup_timeout_minutes`, `.stop_after` | `15`, `true` | how long to wait for it (the first start downloads its models); stop it after the step |
+| `train.audio` | `stem,separated,performed` | what the model hears; `performed` is dropped with a warning when the dataset has no performances |
+| `train.epochs`, `.batch` | `30`, `16` | epochs; crops per step (`null`: train_drums' default, 16 on CPU and 64 on a GPU, not yet compared) |
+| `train.device` | `auto` | `auto` (CUDA, then MPS, then CPU), `cuda`, `mps` or `cpu` |
+| `train.min_agreement`, `.min_offset_strength` | `0.6`, `0.2` | which performed windows are trusted (training and the performed evaluation) |
+| `train.patience`, `.minutes` | `8`, `0` | stop after N epochs without a better valid score; stop after M minutes (0: off) |
+| `train.threads`, `.seed`, `.steps_per_epoch` | `null`, `0`, `null` | PyTorch CPU threads, seed, steps per epoch (default: one pass) |
+| `train.resume` | `true` | when a run is resumed, continue its checkpoint (only if the arguments are unchanged) |
+| `train.skip_if_unchanged` | `true` | do not retrain on the same data and settings (nightly runs with nothing new end quickly) |
+| `train.egmd`, `.egmd_limit`, `.extra_args` | `null` | also train on E-GMD (check its licence), and more `train_drums` options |
+| `evaluate.split` | `test` | the split scored |
+| `evaluate.performed` | `auto` | score performed test windows when there are any (`true`/`false` to force) |
+| `evaluate.previous_best` | `true` | re-score `runs/best` on the same split, for a fair comparison as the dataset grows |
+| `evaluate.songdeck_baseline`, `.serve_port`, `.songdeck_extra_args` | `true`, `0`, `[]` | run Song Deck's harness with its built-in transcriber; port for `serve` (0: a free one) |
+| `promote.metric`, `.min_improvement`, `.require_parity` | `mean_class_f`, `0`, `true` | what "better" means on the separated test split (`mean_class_f` or `overall_f`) |
+| `disk.reserve_gb` | `5` | render and perform refuse to start unless their estimate plus this much is free |
+
+The disk estimate: 10.6 MB per minute per 16-bit stereo file (mix, stems, the four separated
+stems before pruning), 0.25 GB per hour of audio per `train.audio` input for the feature cache,
+and for each take its audio and separated drums at 1.5× that (a margin: the files are written at the song's rate, as large as the mix).
 
 ## Results so far
 

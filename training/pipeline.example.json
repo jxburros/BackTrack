@@ -1,0 +1,85 @@
+{
+  "songdeck": "../Song-Deck",
+  "backtrack_binary": "build/backtrack-surveil",
+  "python": null,
+  "npm": null,
+  "dataset": "~/backtrack-training/sd-drums",
+  "runs_dir": "~/backtrack-training/runs",
+  "low_priority": true,
+
+  "model": { "name": "Surveil drums", "version": "0.1.0", "file_stem": "surveil-drums" },
+
+  "render": {
+    "songs": 400,
+    "grow_per_run": 0,
+    "max_songs": 0,
+    "seconds": 60,
+    "genres": null,
+    "seed": 1000,
+    "only_stems": "drums",
+    "separate": true,
+    "keep_separated": ["drums"],
+    "sample_rate": 44100,
+    "chunk": 50,
+    "jobs": null,
+    "soundbank": null,
+    "extra_args": []
+  },
+
+  "perform": {
+    "enabled": true,
+    "provider": "ace-step-api",
+    "url": "http://127.0.0.1:8001",
+    "strength": 0.35,
+    "takes": 1,
+    "split": "train,valid,test",
+    "songs": null,
+    "seed": null,
+    "window": 4,
+    "min_offset_strength": 0.2,
+    "timeout_minutes": 20,
+    "allow_failed_takes": true,
+    "optional": false,
+    "judge": "auto",
+    "rejudge_after_promotion": true,
+    "extra_args": [],
+    "server": {
+      "command": null,
+      "cwd": null,
+      "startup_timeout_minutes": 15,
+      "stop_after": true
+    }
+  },
+
+  "train": {
+    "audio": "stem,separated,performed",
+    "epochs": 30,
+    "batch": 16,
+    "device": "auto",
+    "min_agreement": 0.6,
+    "min_offset_strength": 0.2,
+    "patience": 8,
+    "minutes": 0,
+    "threads": null,
+    "seed": 0,
+    "steps_per_epoch": null,
+    "resume": true,
+    "skip_if_unchanged": true,
+    "egmd": null,
+    "egmd_limit": null,
+    "extra_args": []
+  },
+
+  "evaluate": {
+    "split": "test",
+    "performed": "auto",
+    "previous_best": true,
+    "songdeck_baseline": true,
+    "serve_port": 0,
+    "songdeck_extra_args": []
+  },
+
+  "promote": { "metric": "mean_class_f", "min_improvement": 0.0, "require_parity": true },
+
+  "disk": { "reserve_gb": 5 }
+}
