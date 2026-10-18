@@ -80,7 +80,7 @@ stem), else the first model whose `audio.stems` includes `source`, trained model
 placeholders.
 
 **Contract note.** `context` is optional and every field in it is optional. Song Deck adopted it
-in `TranscriptionBridgeRequest` (0.17.0) as:
+in `TranscriptionBridgeRequest` as:
 
 ```ts
 context?: {
