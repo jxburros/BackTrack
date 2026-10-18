@@ -180,6 +180,17 @@ SongContext parse_context(const json & c) {
             throw BadInput("'context.program' must be an integer 0-127");
         ctx.program = c["program"].get<int>();
     }
+    if (c.contains("pitch_range") && !c["pitch_range"].is_null()) {
+        const json & r = c["pitch_range"];
+        if (!r.is_array() || r.size() != 2 || !r[0].is_number_integer() || !r[1].is_number_integer() ||
+            r[0].get<int>() < 0 || r[1].get<int>() > 127 || r[0].get<int>() > r[1].get<int>())
+            throw BadInput("'context.pitch_range' must be [lowest, highest] MIDI notes 0-127");
+        ctx.pitch_range = std::make_pair(r[0].get<int>(), r[1].get<int>());
+    }
+    if (c.contains("monophonic") && !c["monophonic"].is_null()) {
+        if (!c["monophonic"].is_boolean()) throw BadInput("'context.monophonic' must be true or false");
+        ctx.monophonic = c["monophonic"].get<bool>();
+    }
     return ctx;
 }
 

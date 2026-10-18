@@ -341,7 +341,7 @@ int cmd_serve(const Args & a, const char * argv0) {
                     {"sources", surveil::known_sources()},
                     {"device", reg.device_name()},
                     {"pitch_bends", true},
-                    {"context", {"key", "tempo", "chords", "program"}},
+                    {"context", {"key", "tempo", "chords", "program", "pitch_range", "monophonic"}},
                     {"capabilities", {"AUDIO_TRANSCRIPTION", "AUDIO_TO_MIDI"}}};
     });
 

@@ -355,6 +355,11 @@ void test_context() {
     expect_throw([] { surveil::parse_context({{"key", "Q"}}); }, "bad key is a 400");
     expect_throw([] { surveil::parse_context({{"tempo", -1}}); }, "bad tempo is a 400");
     expect_throw([] { surveil::parse_context({{"program", 300}}); }, "bad program is a 400");
+    surveil::SongContext r = surveil::parse_context({{"pitch_range", {40, 64}}, {"monophonic", false}});
+    check(r.pitch_range && r.pitch_range->first == 40 && r.pitch_range->second == 64 && r.monophonic == false,
+          "pitch range and monophonic parsed");
+    expect_throw([] { surveil::parse_context({{"pitch_range", {64, 40}}}); }, "reversed pitch range is a 400");
+    expect_throw([] { surveil::parse_context({{"monophonic", "yes"}}); }, "non-boolean monophonic is a 400");
 }
 
 } // namespace
