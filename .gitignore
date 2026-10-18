@@ -2,6 +2,7 @@ build/
 build-*/
 .cache/
 *.gguf
+!/weights/*.gguf
 /models/
 compile_commands.json
 .vscode/
