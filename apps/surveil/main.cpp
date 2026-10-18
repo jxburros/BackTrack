@@ -304,7 +304,9 @@ int cmd_serve(const Args & a, const char * argv0) {
     so.app = "surveil";
     so.role = "transcription";
     so.version = backtrack::version();
-    so.page_html = backtrack::kPageHtml;
+    for (const backtrack::EmbeddedFile & f : backtrack::kPageFiles)
+        so.page.push_back({f.path, f.type, std::string(reinterpret_cast<const char *>(f.data), f.size)});
+    so.theme = "wiretap";
     so.quiet = a.flag("--quiet");
     bool loopback = so.host == "127.0.0.1" || so.host == "localhost" || so.host == "::1";
     if (!loopback && so.token.empty())

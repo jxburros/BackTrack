@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [0.0.1] - Unreleased
 
+### Changed
+
+- **The page follows the design language** (`design/AGENT-SPEC.md`). Surveil opens in the
+  `wiretap` theme: CCTV screen with scanlines, REC and a running CAM timestamp while
+  transcribing, a torn drop zone, a bar waveform of the dropped file with a play button, a
+  progress bar with the stage, percentage and seconds, a case file with redacted
+  unknowns, and a piano roll with 25 px lanes, beat and bar lines from the tempo, and confidence
+  shown as brightness (arrow keys step through notes and read out their numbers). Plain DONE and
+  FAILED states with the cause and the fix, toasts, and a light mode (`xerox-riot`, remembered as
+  `bt-theme`). The fonts (Anton, Space Mono, Permanent Marker, Big Shoulders Stencil Display,
+  VT323) are bundled, so the page loads nothing from the network.
+- **The server serves the page's files.** `ServerOptions::page_html` is replaced by `page` (every
+  file in `ui/`, embedded by `cmake/EmbedPage.cmake`) and `theme`; the page's files need no API key.
+
 Milestone M2: the repository, shared core, server and page, with BackTrack Surveil running a
 placeholder model end to end.
 

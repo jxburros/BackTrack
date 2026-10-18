@@ -1,0 +1,8 @@
+/* Bundled with the binaries so the page works offline (design/AGENT-SPEC.md, section 9).
+   Latin subsets from Google Fonts. Licences: OFL-*.txt, and LICENSE-permanentmarker.txt (Apache 2.0). */
+@font-face { font-family: "Anton"; font-style: normal; font-weight: 400; font-display: swap; src: url("anton-400.woff2") format("woff2"); }
+@font-face { font-family: "Space Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("space-mono-400.woff2") format("woff2"); }
+@font-face { font-family: "Space Mono"; font-style: normal; font-weight: 700; font-display: swap; src: url("space-mono-700.woff2") format("woff2"); }
+@font-face { font-family: "Permanent Marker"; font-style: normal; font-weight: 400; font-display: swap; src: url("permanent-marker-400.woff2") format("woff2"); }
+@font-face { font-family: "Big Shoulders Stencil Display"; font-style: normal; font-weight: 900; font-display: swap; src: url("big-shoulders-stencil-display-900.woff2") format("woff2"); }
+@font-face { font-family: "VT323"; font-style: normal; font-weight: 400; font-display: swap; src: url("vt323-400.woff2") format("woff2"); }

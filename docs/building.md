@@ -51,7 +51,8 @@ For a portable CPU build (CI, releases) add `-DGGML_NATIVE=OFF`.
 core/            audio decode (WAV/FLAC/MP3 via dr_libs), resampling, FFT, harmonic CQT,
                  music theory, MIDI writer, ggml/GGUF helpers, progress and cancellation
 server/          shared HTTP layer (bridge rules, /health /cancel, auth, CORS, job queue)
-ui/              the page both binaries serve (embedded at configure time)
+ui/              the page both binaries serve, with its CSS, scripts and fonts (embedded at configure
+                 time by cmake/EmbedPage.cmake; the look is design/AGENT-SPEC.md)
 apps/surveil     transcriber: model graph, placeholder models, note picking, CLI and server
 apps/explode     separator (S0)
 wasm/            WebAssembly builds (T4)
