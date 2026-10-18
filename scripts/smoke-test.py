@@ -24,6 +24,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BIN = Path(sys.argv[1] if len(sys.argv) > 1 else ROOT / "build" / "backtrack-surveil").resolve()
+if not BIN.exists() and BIN.with_name(BIN.name + ".exe").exists():
+    BIN = BIN.with_name(BIN.name + ".exe")
 passed = failed = 0
 
 

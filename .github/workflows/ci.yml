@@ -52,7 +52,7 @@ jobs:
         id: bin
         run: |
           for dir in build build/Release; do
-            for ext in "" .exe; do
+            for ext in .exe ""; do  # .exe first: Git Bash also matches the bare name
               if [ -f "$dir/backtrack-surveil$ext" ]; then
                 echo "surveil=$dir/backtrack-surveil$ext" >> "$GITHUB_OUTPUT"
                 echo "tests=$dir/backtrack-tests$ext" >> "$GITHUB_OUTPUT"
