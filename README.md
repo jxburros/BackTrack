@@ -13,9 +13,11 @@ Each works on its own (command line, or the page the binary serves) and as a pro
 transcription bridge contracts. Everything runs locally on [ggml](https://github.com/ggml-org/ggml),
 with weights in GGUF; no Python at run time.
 
-> **Status: 0.0.1, milestone M2.** The repository, shared core, HTTP server and page are in
-> place, and Surveil runs end to end, but with a **placeholder model** (hand-set weights, no
-> training). Trained models start with T1 and T2. See [the plan](docs/plans/overall.md).
+> **Status: milestone M3, release 0.1 being prepared.** Surveil has its first trained model,
+> **drums** ([weights/](weights/README.md): F 0.81 against Song Deck's built-in 0.50 on held-out
+> rendered songs). Other stems still use the placeholder model (hand-set weights) until their
+> models are trained. Training runs from `training/`, at home too
+> ([docs/training-at-home.md](docs/training-at-home.md)). See [the plan](docs/plans/overall.md).
 
 ## Quick start
 
@@ -42,15 +44,19 @@ The page has its own guide: [docs/page.md](docs/page.md).
 backtrack-surveil INPUT [--stem mix|vocals|bass|drums|piano|guitar|melody|other]
                         [--key "A minor"] [--tempo 120] [--chords chords.json] [--program 33]
                         [--pitch-bends] [-o out.mid] [--json out.json|-]
+                        [--activations likelihoods.json|-] [--hcqt hcqt.npy]
                         [--model ID|FILE.gguf] [--device NAME] [--threads N]
 backtrack-surveil serve [--host 127.0.0.1] [--port 8826] [--api-key KEY] [--allow-origin URL]
-backtrack-surveil models | devices | make-placeholder -o FILE.gguf
+backtrack-surveil models | devices
+backtrack-surveil make-placeholder -o FILE.gguf [--kind drums] [--init random --seed N] [--head temporal]
 ```
 
 Input is WAV, FLAC or MP3. Output is a Standard MIDI File and, with `--json`, the same JSON the
-server returns. Song context (key, tempo, chords) shapes note picking: out-of-key and
-non-chord pitches are less likely, and note starts are pulled toward the tempo's grid. Bass,
-vocals and melody are transcribed one note at a time.
+server returns; `--activations` and `--hcqt` write the model's raw likelihoods and its input,
+for the training code's parity check ([training/README.md](training/README.md)). Song context
+(key, tempo, chords) shapes note picking: out-of-key and non-chord pitches are less likely, and
+note starts are pulled toward the tempo's grid. Bass, vocals and melody are transcribed one
+note at a time.
 
 ## Surveil in Song Deck
 
@@ -79,6 +85,10 @@ own front-end settings and licence record ([docs/gguf-metadata.md](docs/gguf-met
   [GGUF metadata](docs/gguf-metadata.md): what a model file says about itself
 - [Design language](design/README.md): the boards, the rules and the
   [agent spec](design/AGENT-SPEC.md)
+- [Training](training/README.md): the PyTorch pipeline, GGUF export, the parity check and
+  drum evaluation
+- [Training at home](docs/training-at-home.md): train the drum model on your own computer with
+  Song Deck's songs and ACE-Step's covers, step by step, and run it nightly
 - Plans: [overall](docs/plans/overall.md), [Surveil](docs/plans/surveil.md),
   [Explode](docs/plans/explode.md)
 

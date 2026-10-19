@@ -26,6 +26,8 @@ struct SongContext {
     std::optional<double> tempo;          // BPM; note starts are pulled toward its 16th-note grid
     std::vector<ChordSpan> chords;
     std::optional<int> program;           // General MIDI program reported on each note
+    std::optional<std::pair<int, int>> pitch_range;  // lowest and highest MIDI note; else the source's range
+    std::optional<bool> monophonic;       // one note at a time; else decided by the source
 };
 
 struct PickOptions {

@@ -1,0 +1,252 @@
+# BackTrack release: build backtrack-surveil for each platform, attach the
+# archives, the model files in weights/ and checksums.txt to the GitHub
+# Release for the tag. Onyx Engine's convention (its docs/building.md,
+# "Release binaries"):
+#
+#   backtrack-surveil-<tag>-<platformKey>.tar.gz   (.zip on Windows)
+#   backtrack-surveil-<tag>-linux-x64-vulkan.tar.gz (GPU build)
+#   surveil-drums-<version>.gguf                    (models, separate downloads)
+#   checksums.txt                                   ("<sha256>  <file>" per asset)
+#
+# <platformKey> is Node's `${process.platform}-${process.arch}`, which is how
+# Song Deck's binary recipe (and later JX Runtime) picks the asset. Each
+# archive is flat: the binary and the licences, no subdirectory.
+#
+# Triggers: a `v*` tag push, or manual dispatch with an existing `tag`.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build and release (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04 for older-glibc portability.
+          - asset-key: linux-x64
+            runs-on: ubuntu-22.04
+            archive-ext: tar.gz
+            bin-name: backtrack-surveil
+            gpu: ""
+          # The Vulkan build needs glslc, packaged from Ubuntu 24.04 on.
+          - asset-key: linux-x64-vulkan
+            runs-on: ubuntu-24.04
+            archive-ext: tar.gz
+            bin-name: backtrack-surveil
+            gpu: -DBACKTRACK_VULKAN=ON
+          # Metal is on every Apple Silicon Mac; the CPU backend stays as fallback.
+          - asset-key: darwin-arm64
+            runs-on: macos-latest
+            archive-ext: tar.gz
+            bin-name: backtrack-surveil
+            gpu: -DBACKTRACK_METAL=ON
+          - asset-key: darwin-x64
+            runs-on: macos-15-intel
+            archive-ext: tar.gz
+            bin-name: backtrack-surveil
+            gpu: ""
+          - asset-key: win32-x64
+            runs-on: windows-latest
+            archive-ext: zip
+            bin-name: backtrack-surveil.exe
+            gpu: ""
+    name: build (${{ matrix.asset-key }})
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Resolve tag
+        id: tag
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="$DISPATCH_TAG"
+          else
+            tag="${GITHUB_REF#refs/tags/}"
+          fi
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::invalid release tag"; exit 1; }
+          git rev-parse -q --verify "refs/tags/$tag^{commit}" >/dev/null || { echo "::error::release tag does not exist"; exit 1; }
+          version=$(sed -n '/^project(backtrack$/,/^)/s/^[[:space:]]*VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          [ "${tag#v}" = "$version" ] || { echo "::error::tag and project version differ"; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Fetches and verifies the pinned ggml commit (scripts/install-vendor.js).
+      - name: Install ggml
+        run: npm ci
+
+      - name: Install Vulkan headers and glslc
+        if: contains(matrix.gpu, 'VULKAN')
+        run: sudo apt-get update && sudo apt-get install -y libvulkan-dev glslc
+
+      - name: Configure (Release, static)
+        if: runner.os != 'Windows'
+        run: |
+          cpu_flags=()
+          case "${{ matrix.asset-key }}" in
+            linux-x64*|darwin-x64) cpu_flags=(-DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON) ;;
+          esac
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DGGML_CCACHE=OFF "${cpu_flags[@]}" ${{ matrix.gpu }}
+
+      # MSVC: let CMake pick the newest Visual Studio generator (pinning one
+      # broke an Onyx Engine release when the runner image moved on).
+      - name: Configure (Release, static, MSVC)
+        if: runner.os == 'Windows'
+        run: cmake -B build -A x64 -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DGGML_CCACHE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+
+      - name: Build
+        run: cmake --build build --target backtrack-surveil --config Release -j 4
+
+      # Multi-config generators put the binary in build/Release/.
+      - name: Locate binary
+        id: locate
+        run: |
+          for cand in "build/${{ matrix.bin-name }}" "build/Release/${{ matrix.bin-name }}"; do
+            if [ -f "$cand" ]; then
+              echo "path=$cand" >> "$GITHUB_OUTPUT"
+              echo "found $cand"
+              exit 0
+            fi
+          done
+          echo "::error::${{ matrix.bin-name }} not found"; exit 1
+
+      - name: Sanity check (--version)
+        run: '"${{ steps.locate.outputs.path }}" --version'
+
+      # The released binary runs the whole smoke test, with the drum model it ships with.
+      - name: Smoke test
+        run: python scripts/smoke-test.py "${{ steps.locate.outputs.path }}"
+
+      - name: Run the shipped models
+        run: |
+          python scripts/make-test-audio.py test-audio
+          for model in weights/*.gguf; do
+            "${{ steps.locate.outputs.path }}" test-audio/drums.wav --stem drums --model "$model" -o drums.mid --json - --quiet > out.json
+            python -c "import json,sys; d=json.load(open('out.json')); sys.exit(0 if d['notes'] else 'no notes from $model')"
+          done
+
+      - name: Check release dynamic dependencies
+        if: runner.os != 'Windows'
+        run: |
+          if [ "${{ runner.os }}" = Linux ]; then
+            ldd '${{ steps.locate.outputs.path }}' | tee dependencies.txt
+            if grep -Ei 'libgomp|libssl|libcrypto|not found' dependencies.txt; then
+              echo "::error::unexpected release dependency"; exit 1
+            fi
+          else
+            otool -L '${{ steps.locate.outputs.path }}' | tee dependencies.txt
+            if grep -Ei '/opt/homebrew|/usr/local|libgomp|libssl|libcrypto' dependencies.txt; then
+              echo "::error::unexpected release dependency"; exit 1
+            fi
+          fi
+
+      - name: Package
+        run: |
+          name="backtrack-surveil-${{ steps.tag.outputs.tag }}-${{ matrix.asset-key }}.${{ matrix.archive-ext }}"
+          stage=$(mktemp -d)
+          cp "${{ steps.locate.outputs.path }}" "$stage/${{ matrix.bin-name }}"
+          cp LICENSE "$stage/LICENSE"
+          cp third_party/cpp-httplib/LICENSE "$stage/LICENSE-cpp-httplib"
+          cp third_party/nlohmann/LICENSE.MIT "$stage/LICENSE-nlohmann-json"
+          cp third_party/dr_libs/LICENSE "$stage/LICENSE-dr_libs"
+          cp node_modules/@jxburros/ggml-source/LICENSE "$stage/LICENSE-ggml"
+          cp ui/fonts/OFL-*.txt ui/fonts/LICENSE-permanentmarker.txt "$stage/"
+          chmod +x "$stage/${{ matrix.bin-name }}"
+          files=$(cd "$stage" && ls)
+          if [ "${{ matrix.archive-ext }}" = zip ]; then
+            (cd "$stage" && 7z a -tzip "$OLDPWD/$name" $files)
+          else
+            tar -czf "$name" -C "$stage" $files
+          fi
+          echo "ARCHIVE=$name" >> "$GITHUB_ENV"
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtrack-surveil-${{ matrix.asset-key }}
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+
+  # All-or-nothing on purpose, as in Onyx Engine: Song Deck pins one tag and
+  # derives each asset name from the platform, so a partial release would
+  # install on some machines and 404 on others. Re-run with workflow_dispatch
+  # against the same tag after a fix; the release is updated in place.
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Resolve tag
+        id: tag
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="$DISPATCH_TAG"
+          else
+            tag="${GITHUB_REF#refs/tags/}"
+          fi
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::invalid release tag"; exit 1; }
+          git rev-parse -q --verify "refs/tags/$tag^{commit}" >/dev/null || { echo "::error::release tag does not exist"; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Download all archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: backtrack-surveil-*
+          merge-multiple: true
+
+      - name: Add the models
+        run: cp weights/*.gguf dist/
+
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum backtrack-surveil-* *.gguf > checksums.txt
+          cat checksums.txt
+
+      - name: Create/update GitHub Release
+        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            dist/backtrack-surveil-*
+            dist/*.gguf
+            dist/checksums.txt

@@ -43,7 +43,9 @@ Song Deck's `TranscriptionBridgeRequest`, plus the optional `context` the plan a
     "key": "E minor",          // lowers out-of-key pitches; echoed as "key"
     "tempo": 100,              // BPM; pulls note starts to the 16th-note grid; echoed as "tempo"
     "chords": [{ "symbol": "Em", "start": 0, "end": 2.4 }],  // lowers non-chord tones in each span
-    "program": 34              // General MIDI program reported on each note
+    "program": 34,             // General MIDI program reported on each note
+    "pitch_range": [28, 67],   // lowest and highest MIDI note of the part (else the stem's range)
+    "monophonic": true         // one note at a time (else bass, vocals and melody are)
   },
   "include_midi": false        // optional: also return "midi_base64" (a Standard MIDI File)
 }
@@ -77,9 +79,8 @@ Which model runs: `model` if given (an id, or a stem name, which picks the model
 stem), else the first model whose `audio.stems` includes `source`, trained models before
 placeholders.
 
-**Contract note.** `context` is new. It is optional and every field in it is optional, so
-Song Deck's adapter keeps working without it. Per the overall plan's contract rule, Song Deck
-should add it to `TranscriptionBridgeRequest` as:
+**Contract note.** `context` is optional and every field in it is optional. Song Deck adopted it
+in `TranscriptionBridgeRequest` as:
 
 ```ts
 context?: {
@@ -87,6 +88,8 @@ context?: {
   tempo?: number;
   chords?: { symbol: string; start: number; end: number }[];
   program?: number;
+  pitch_range?: [number, number];
+  monophonic?: boolean;
 };
 ```
 
@@ -104,7 +107,7 @@ context?: {
   "sources": ["mix", "vocals", "bass", "drums", "piano", "guitar", "melody", "other"],
   "device": "CPU",
   "pitch_bends": true,
-  "context": ["key", "tempo", "chords", "program"],
+  "context": ["key", "tempo", "chords", "program", "pitch_range", "monophonic"],
   "capabilities": ["AUDIO_TRANSCRIPTION", "AUDIO_TO_MIDI"]
 }
 ```

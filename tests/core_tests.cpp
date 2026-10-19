@@ -11,11 +11,15 @@
 #include "backtrack/music.h"
 
 #include "ggml-backend.h"
+#include "ggml.h"
+#include "gguf.h"
 
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <functional>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -254,6 +258,96 @@ void test_placeholder_pipeline() {
     ggml_backend_free(backend);
 }
 
+// A copy of a model with extra tensors (zeros), for the graph's shape checks.
+std::unique_ptr<backtrack::GgufFile> with_tensors(const backtrack::GgufFile & src,
+                                                   const std::vector<std::pair<std::string, std::vector<int64_t>>> & extra) {
+    ggml_init_params p{size_t(32) << 20, nullptr, false};
+    ggml_context * ctx = ggml_init(p);
+    gguf_context * g = gguf_init_empty();
+    gguf_set_kv(g, src.gguf());
+    for (int64_t i = 0; i < gguf_get_n_tensors(src.gguf()); i++) {
+        ggml_tensor * s = ggml_get_tensor(src.tensors(), gguf_get_tensor_name(src.gguf(), i));
+        ggml_tensor * t = ggml_dup_tensor(ctx, s);
+        ggml_set_name(t, ggml_get_name(s));
+        std::memcpy(t->data, s->data, ggml_nbytes(s));
+        gguf_add_tensor(g, t);
+    }
+    for (auto & [name, ne] : extra) {
+        ggml_tensor * t = ggml_new_tensor(ctx, GGML_TYPE_F32, int(ne.size()), ne.data());
+        ggml_set_name(t, name.c_str());
+        std::memset(t->data, 0, ggml_nbytes(t));
+        gguf_add_tensor(g, t);
+    }
+    return backtrack::GgufFile::adopt(g, ctx, "test");
+}
+
+void test_drum_layouts() {
+    ggml_backend_t backend = backtrack::init_backend("CPU", 2, nullptr);
+    auto shared = surveil::Model::load(surveil::make_placeholder("drums", "random", 1), "shared", backend);
+    check(shared->spec().receptive_radius == 3, "T0 drum head: receptive radius 3");
+    auto temporal_file = [] { return surveil::make_placeholder("drums", "random", 1, "temporal"); };
+    auto temporal = surveil::Model::load(temporal_file(), "temporal", backend);
+    check(temporal->spec().receptive_radius == 12 && temporal->spec().n_outputs == 7, "temporal drum head: radius 12");
+    expect_throw([&] { surveil::make_placeholder("pitched", "random", 1, "temporal"); }, "temporal head is drums only");
+
+    // Optional layers: a third temporal conv loads and widens the radius;
+    // a gap in the trunk, a wrong channel count or a missing bias does not.
+    auto deeper = surveil::Model::load(with_tensors(*temporal_file(), {{"tconv3.weight", {1, 9, 32, 32}}, {"tconv3.bias", {32}}}),
+                                       "deeper", backend);
+    check(deeper->spec().receptive_radius == 16, "tconv3 adds its radius");
+    expect_throw([&] { surveil::Model::load(with_tensors(*temporal_file(), {{"conv4.weight", {3, 3, 8, 8}}, {"conv4.bias", {8}}}), "x", backend); },
+                 "a trunk layer after a gap is rejected");
+    expect_throw([&] { surveil::Model::load(with_tensors(*temporal_file(), {{"tconv3.weight", {1, 9, 16, 32}}, {"tconv3.bias", {32}}}), "x", backend); },
+                 "tconv3 reading the wrong channel count is rejected");
+    expect_throw([&] { surveil::Model::load(with_tensors(*temporal_file(), {{"tconv3.weight", {1, 9, 32, 32}}}), "x", backend); },
+                 "tconv3 without a bias is rejected");
+    expect_throw([&] { surveil::Model::load(with_tensors(*temporal_file(), {{"tconv3.weight", {3, 9, 32, 32}}, {"tconv3.bias", {32}}}), "x", backend); },
+                 "a temporal conv wider than one bin is rejected");
+
+    // Chunking: frames away from the clip edges do not depend on where the
+    // 512-frame chunks fall, so the context covers the receptive field.
+    backtrack::Hcqt x;
+    x.n_frames = 700;
+    x.n_bins = 264;
+    x.n_harmonics = 8;
+    x.data.resize(size_t(8) * 700 * 264);
+    std::mt19937 rng(3);
+    std::uniform_real_distribution<float> u(0.0f, 1.0f);
+    for (float & v : x.data) v = u(rng);
+    backtrack::Hcqt tail = x;
+    const int shift = 100, T2 = 600;
+    tail.n_frames = T2;
+    tail.data.resize(size_t(8) * T2 * 264);
+    for (int h = 0; h < 8; h++)
+        std::copy_n(&x.data[(size_t(h) * 700 + shift) * 264], size_t(T2) * 264, &tail.data[size_t(h) * T2 * 264]);
+    surveil::Activations full = deeper->run(x, {}, 0, 1), part = deeper->run(tail, {}, 0, 1);
+    const int r = deeper->spec().receptive_radius;
+    bool same = true;
+    for (int t = r; t < T2 - r && same; t++)
+        for (int c = 0; c < 7; c++) same = same && part.onset[size_t(t) * 7 + c] == full.onset[size_t(t + shift) * 7 + c];
+    check(same, "likelihoods do not depend on the chunk boundaries");
+
+    // The training code's outputs: activations JSON and the HCQT as .npy.
+    nlohmann::json j = surveil::activations_json(full, deeper->spec());
+    check(j["kind"] == "drums" && j["frames"] == 700 && j["onset"].size() == 700 && j["onset"][0].size() == 7 &&
+              j["receptive_radius"] == 16 && j["class_notes"][0] == 36 && !j.contains("note"),
+          "activations JSON (drums)");
+    check(j["onset"][5][2].get<float>() == full.onset[5 * 7 + 2], "activations JSON keeps float values exactly");
+    std::vector<uint8_t> npy = surveil::hcqt_npy(x);
+    std::string head(npy.begin() + 10, npy.begin() + 10 + (npy[8] | npy[9] << 8));
+    check(npy[0] == 0x93 && head.find("'shape': (8, 700, 264)") != std::string::npos && (10 + head.size()) % 64 == 0 &&
+              npy.size() == 10 + head.size() + x.data.size() * 4,
+          "HCQT .npy header and size");
+    float v0;
+    std::memcpy(&v0, &npy[10 + head.size()], 4);
+    check(v0 == x.data[0], "HCQT .npy data");
+
+    shared.reset();
+    temporal.reset();
+    deeper.reset();
+    ggml_backend_free(backend);
+}
+
 void test_context() {
     nlohmann::json ctx = {{"key", "A minor"}, {"tempo", 96}, {"chords", {{{"symbol", "Am"}, {"start", 0}, {"end", 2}}}}, {"program", 5}};
     surveil::SongContext c = surveil::parse_context(ctx);
@@ -261,6 +355,11 @@ void test_context() {
     expect_throw([] { surveil::parse_context({{"key", "Q"}}); }, "bad key is a 400");
     expect_throw([] { surveil::parse_context({{"tempo", -1}}); }, "bad tempo is a 400");
     expect_throw([] { surveil::parse_context({{"program", 300}}); }, "bad program is a 400");
+    surveil::SongContext r = surveil::parse_context({{"pitch_range", {40, 64}}, {"monophonic", false}});
+    check(r.pitch_range && r.pitch_range->first == 40 && r.pitch_range->second == 64 && r.monophonic == false,
+          "pitch range and monophonic parsed");
+    expect_throw([] { surveil::parse_context({{"pitch_range", {64, 40}}}); }, "reversed pitch range is a 400");
+    expect_throw([] { surveil::parse_context({{"monophonic", "yes"}}); }, "non-boolean monophonic is a 400");
 }
 
 } // namespace
@@ -273,6 +372,7 @@ int main() {
     test_midi();
     test_context();
     test_placeholder_pipeline();
+    test_drum_layouts();
     std::printf("passed: %d, failed: %d\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

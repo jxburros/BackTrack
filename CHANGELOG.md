@@ -4,6 +4,36 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+## [0.1.0] - 2026-10-19
+
+Milestone M3: the training pipeline, Surveil's first trained model (drums), release binaries and
+Song Deck's preset.
+
+### Added
+
+- **Surveil drums 0.1.0** (`weights/surveil-drums-0.1.0.gguf`): seven drum classes, 89,567
+  parameters, trained on 9.4 h of Song Deck renders. On 38 held-out songs' separated drums it
+  scores F 0.813 against Song Deck's built-in drum transcription's 0.495, and beats it on every
+  class (`weights/README.md`).
+- **Training pipeline** (`training/`, PyTorch): the harmonic CQT front end matching the C++ one,
+  the `surveil-cnn` graph, GGUF export and reading, readers for Song Deck's exported datasets,
+  E-GMD and synthetic drums, a feature cache, drum training on CPU, CUDA or MPS, and evaluation
+  through the binary. The parity check runs the same clips through PyTorch and the binary (CI
+  runs it on every push).
+- **Training on ACE-Step performances** (`--audio performed`): labels follow each take's offset,
+  and only the windows whose drums agree with the song's notes count.
+- **One command for training at home** (`python3 -m training.pipeline`): renders, has ACE-Step
+  perform, trains, evaluates against the previous best and Song Deck's built-in, and reports;
+  schedulable on Linux, macOS and Windows. Step by step in `docs/training-at-home.md`.
+- **Release workflow** (`.github/workflows/release.yml`): `backtrack-surveil` for linux-x64 (and
+  a Vulkan build), darwin-arm64 (Metal), darwin-x64 and win32-x64, with the models and
+  `checksums.txt`, in Onyx Engine's asset convention, which Song Deck's one-click install pins.
+- `--activations` and `--hcqt` outputs; an optional deeper trunk and a temporal drum head
+  (per-class onset kernels); chunk context from the receptive field.
+- Song context: `pitch_range` and `monophonic`, which Song Deck now sends.
+
 ## [0.0.1] - Unreleased
 
 ### Changed

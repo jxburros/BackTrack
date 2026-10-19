@@ -1,5 +1,6 @@
 # BackTrack CI: build against the pinned ggml, run the unit tests and the
-# end-to-end smoke test on Linux, macOS and Windows.
+# end-to-end smoke test on Linux, macOS and Windows; then, on Linux, the
+# training code's parity check and a few-second toy training run.
 name: ci
 
 on:
@@ -67,3 +68,52 @@ jobs:
 
       - name: Smoke test
         run: python scripts/smoke-test.py "${{ steps.bin.outputs.surveil }}"
+
+      - name: Keep the Linux binary for the training job
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtrack-surveil-linux
+          path: build/backtrack-surveil
+          retention-days: 1
+
+  # training/: PyTorch and the binary must agree (front end and likelihoods),
+  # and the pipeline must train, export and evaluate a model end to end.
+  training:
+    needs: build
+    name: training (parity, toy model)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: backtrack-surveil-linux
+          path: build
+
+      - name: Install NumPy and CPU PyTorch
+        run: |
+          chmod +x build/backtrack-surveil
+          python -m pip install --upgrade pip
+          python -m pip install numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Parity on the placeholder models
+        run: python -m training.parity --binary build/backtrack-surveil --placeholders
+
+      - name: Toy drum model (synthetic data, a few seconds of training)
+        run: |
+          python -m training.synth --out "$RUNNER_TEMP/synth" --songs 10 --seconds 8
+          python -m training.train_drums --data "$RUNNER_TEMP/synth" --out "$RUNNER_TEMP/toy.gguf" \
+            --epochs 2 --steps-per-epoch 8 --batch 8 --version 0.0.0-ci
+          python -m training.parity --binary build/backtrack-surveil --model "$RUNNER_TEMP/toy.gguf"
+          python -m training.evaluate --model "$RUNNER_TEMP/toy.gguf" --data "$RUNNER_TEMP/synth" --split all \
+            --binary build/backtrack-surveil
+
+      - name: Performed audio (shifted labels, accepted windows, resume; about 20 s)
+        run: python -m training.check_performed --work "$RUNNER_TEMP/perf"

@@ -44,8 +44,8 @@ bool onset_peak(const std::vector<float> & on, int outputs, int frames, int t, i
 // Context priors as a per-frame, per-pitch multiplier.
 std::vector<float> priors(const Activations & a, const ModelSpec & spec, const PickOptions & opt) {
     std::vector<float> w(size_t(a.frames) * a.outputs, 1.0f);
-    auto [lo, hi] = pitch_range(opt.source);
     const SongContext & ctx = opt.context;
+    auto [lo, hi] = ctx.pitch_range ? *ctx.pitch_range : pitch_range(opt.source);
     for (int i = 0; i < a.outputs; i++) {
         int pitch = spec.pitch_min + i;
         int pc = pitch % 12;
@@ -241,7 +241,7 @@ std::vector<Note> pick_notes(const Activations & a, const ModelSpec & spec, cons
             frame[k] = a.note[k] * w[k];
             on[k] = a.onset[k] * w[k];
         }
-        if (is_monophonic(opt.source)) monophonic(notes, a, frame, on, spec, opt, min);
+        if (opt.context.monophonic.value_or(is_monophonic(opt.source))) monophonic(notes, a, frame, on, spec, opt, min);
         else polyphonic(notes, a, frame, on, spec, opt, min);
         int program = opt.context.program ? *opt.context.program : default_program(opt.source);
         for (Note & n : notes) n.program = program;

@@ -2,6 +2,7 @@ build/
 build-*/
 .cache/
 *.gguf
+!/weights/*.gguf
 /models/
 compile_commands.json
 .vscode/
@@ -12,3 +13,7 @@ packaging/dist/
 .venv/
 venv/
 __pycache__/
+*.pt
+/runs/
+/weights/*.history.json
+/weights/*.summary.json

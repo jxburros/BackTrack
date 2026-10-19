@@ -51,6 +51,8 @@ transcribe:
   --pitch-bends         include pitch curves (JSON "bend", MIDI pitch wheel)
   -o, --output FILE     MIDI file (default: INPUT with .mid; "-" for none)
   --json FILE           also write the bridge response JSON ("-" for stdout)
+  --activations FILE    also write the model's raw likelihoods per frame as JSON ("-" for stdout)
+  --hcqt FILE           also write the front end's output (float32 .npy, [harmonics, frames, bins])
   --onset-threshold X   0..1 (default 0.5)
   --frame-threshold X   0..1 (default 0.5)
 
@@ -76,6 +78,9 @@ make-placeholder:
   --init wired|random   wired: hand-set weights that follow the audio (default);
                         random: seeded random weights
   --seed N              for --init random
+  --head shared|temporal
+                        drums: T0's one shared onset kernel (default), or the
+                        T2 layout with temporal convs (--init random only)
 )";
 
 bool stderr_is_terminal() {
@@ -227,7 +232,11 @@ int cmd_transcribe(const Args & a, const char * argv0) {
         std::fflush(stderr);
     };
     backtrack::Audio audio = backtrack::load_audio_file(input);
-    surveil::Result r = surveil::transcribe(audio, model, opt, progress);
+    const std::string act_out = a.get("--activations"), hcqt_out = a.get("--hcqt");
+    surveil::Activations act;
+    backtrack::Hcqt hcqt;
+    surveil::Result r = surveil::transcribe(audio, model, opt, progress, act_out.empty() ? nullptr : &act,
+                                            hcqt_out.empty() ? nullptr : &hcqt);
     if (stderr_is_terminal()) std::fprintf(stderr, "\r%-16s\r", "");
 
     std::string out = a.get("--output", fs::path(input).replace_extension(".mid").string());
@@ -236,6 +245,12 @@ int cmd_transcribe(const Args & a, const char * argv0) {
     std::string body = surveil::result_json(r, opt.pitch_bends).dump(2);
     if (json_out == "-") std::cout << body << "\n";
     else if (!json_out.empty()) write_file(json_out, std::vector<uint8_t>(body.begin(), body.end()));
+    if (!act_out.empty()) {
+        std::string acts = surveil::activations_json(act, model.spec()).dump();
+        if (act_out == "-") std::cout << acts << "\n";
+        else write_file(act_out, std::vector<uint8_t>(acts.begin(), acts.end()));
+    }
+    if (!hcqt_out.empty()) write_file(hcqt_out, surveil::hcqt_npy(hcqt));
 
     std::fprintf(stderr, "%zu notes from %.1f s of %s (model %s%s, device %s)", r.notes.size(), r.seconds, opt.source.c_str(),
                  r.model.c_str(), model.spec().placeholder ? ", placeholder" : "", registry->device_name().c_str());
@@ -278,7 +293,7 @@ int cmd_make_placeholder(const Args & a) {
     std::string out = a.get("--output");
     if (out.empty()) throw BadInput("make-placeholder needs -o FILE.gguf");
     uint64_t seed = a.opts.count("--seed") ? uint64_t(to_number(a.get("--seed"), "--seed")) : 0;
-    auto f = surveil::make_placeholder(a.get("--kind", "pitched"), a.get("--init", "wired"), seed);
+    auto f = surveil::make_placeholder(a.get("--kind", "pitched"), a.get("--init", "wired"), seed, a.get("--head", "shared"));
     if (!f->save(out)) throw BadInput("cannot write " + out);
     std::fprintf(stderr, "wrote %s\n", out.c_str());
     return 0;
@@ -326,7 +341,7 @@ int cmd_serve(const Args & a, const char * argv0) {
                     {"sources", surveil::known_sources()},
                     {"device", reg.device_name()},
                     {"pitch_bends", true},
-                    {"context", {"key", "tempo", "chords", "program"}},
+                    {"context", {"key", "tempo", "chords", "program", "pitch_range", "monophonic"}},
                     {"capabilities", {"AUDIO_TRANSCRIPTION", "AUDIO_TO_MIDI"}}};
     });
 

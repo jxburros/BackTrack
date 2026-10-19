@@ -79,7 +79,7 @@ The drum classes should match the drum stems Song Deck's staged separation alrea
   ACE-Step performances of Song Deck songs, separated, then transcribed and scored against the
   song's own notes. It's realistic audio with a known answer, recorded run against run. Use it to
   set the baseline for each stem type now (built-in, Basic Pitch, the specialists) and to judge
-  every milestone below. It's for measuring; training on ACE-Step output is an open decision.
+  every milestone below. Training on ACE-Step performances is allowed too (licence checked by the owner 2026-10-18).
 
 ## Training code (`training/`)
 
@@ -98,9 +98,9 @@ transcribe`, `audio.stems`, `audio.sample_rate`, `audio.hop`, `audio.classes`,
 | #   | What                                                                                                                   | Done when                                                                            | Size                   |
 | --- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ---------------------- |
 | T0  | Repository, shared core and server, CLI and page, with a placeholder model (random weights, real graph) — **done (0.0.1)** | Song Deck can call it as a bridge and gets notes back                                | done (M2)              |
-| T1  | Training pipeline: data reader, front end, parity check, GGUF export                                                   | A trained toy model runs identically in PyTorch and C++                              | 1–2 weeks              |
-| T2  | Drum model                                                                                                             | Beats Song Deck's onset-based drum transcription on the real test set and E-GMD      | 2–3 weeks              |
-| T3  | Release 0.1: binaries for Windows, macOS and Linux (CPU, plus GPU builds), models as separate downloads with checksums | Song Deck's one-click install works                                                  | about 1 week           |
+| T1  | Training pipeline: data reader, front end, parity check, GGUF export — **done (M3)**                                                   | A trained toy model runs identically in PyTorch and C++                              | 1–2 weeks              |
+| T2  | Drum model — **trained: 0.813 vs 0.495 on rendered test songs; real recordings and E-GMD not scored yet**                                                                                                             | Beats Song Deck's onset-based drum transcription on the real test set and E-GMD      | 2–3 weeks              |
+| T3  | Release 0.1: binaries for Windows, macOS and Linux (CPU, plus GPU builds), models as separate downloads with checksums — **workflow ready; tag v0.1.0 to cut** | Song Deck's one-click install works                                                  | about 1 week           |
 | T4  | WebAssembly build inside Song Deck                                                                                     | Drums transcribe in the page with no install, in reasonable time for a 4-minute song | 1–2 weeks              |
 | T5  | Bass, then melody and vocals                                                                                           | Each beats the current best Song Deck path for that stem on the real test set        | 2–4 weeks each         |
 | T6  | Song context in note picking                                                                                           | Measurable gain with context on versus off                                           | about 1 week           |
