@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-19
+
 ### Added
 
 - **Surveil in WebAssembly** (milestone T4, `wasm/`): the same pipeline built with Emscripten,

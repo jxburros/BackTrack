@@ -24,8 +24,8 @@ the model with Song Deck's own transcription of the same parts. Under **Use it i
 (`~/.songdeck/plugins`). In Song Deck, open Settings → Plugins, press **Rescan** and switch it on:
 it then transcribes those parts in the page, and joins **Use specialist transcribers** and
 **Combine transcribers**. The panel also says whether Song Deck's own transcription still does
-better, in which case train more first. Bass and melody need a Song Deck with model plugins (newer than
-0.17.0).
+better, in which case train more first. Bass and melody need a Song Deck with model plugins (0.18.0 or
+later).
 
 It needs BackTrack Surveil installed, Python
 with PyTorch, Node.js, a Song Deck checkout and, for performances, ACE-Step 1.5 (sections 1, 2, 4
