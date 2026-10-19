@@ -1,6 +1,6 @@
 {
   "name": "@jxburros/backtrack-desktop",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "BackTrack desktop apps: Surveil, Explode and the BackTrack hub, on Tauri.",
   "license": "MIT",

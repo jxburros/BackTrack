@@ -6,7 +6,17 @@ model also hears realistic audio, BackTrack trains on both, scores the result, a
 thing runs again every night by itself. It is written for doing it the first time; every command
 is given for Windows, macOS and Linux where they differ.
 
-One command does the work:
+**The easy way: the TRAIN tab.** Open the **BackTrack** desktop app (the hub,
+[docs/desktop.md](desktop.md)) and click **TRAIN** in the top bar. Choose your Song Deck and
+ACE-Step folders, click **Check setup** (it says what's missing and can install Song Deck's
+dependencies and sound bank for you), then **Start training**. It shows each step, the output and
+the report, with **Stop** and **Resume last run**. It needs BackTrack Surveil installed, Python
+with PyTorch, Node.js, a Song Deck checkout and, for performances, ACE-Step 1.5 (sections 1, 2, 4
+and 5 below); there is no BackTrack source checkout or build to do. Keep the app open while it
+trains: closing it stops the run.
+
+Everything below is the same pipeline from a terminal, which you need for scheduled runs. One
+command does the work:
 
 ```bash
 python3 -m training.pipeline --config ~/backtrack-training/pipeline.json

@@ -15,6 +15,7 @@
     <a href="#hub" data-view="hub" aria-current="page">Hub</a>
     <a href="#explode" data-view="explode">Explode</a>
     <a href="#surveil" data-view="surveil">Surveil</a>
+    <a href="#train" data-view="train">Train</a>
   </nav>
 </header>
 
@@ -31,6 +32,57 @@
   <p class="bt-caption">runs on your machine. nothing leaves it.</p>
 </main>
 
+<main class="hub-view train" id="view-train" hidden>
+  <div class="hub-head">
+    <h1 class="bt-shout bt-toner bt-tilt-l2">Train it.</h1>
+    <span class="bt-scrawl bt-tilt-r3" aria-hidden="true">teach surveil drums.</span>
+  </div>
+  <p class="train-intro">Renders songs with Song Deck, has ACE-Step play them, trains Surveil's drum model on them and
+    tells you whether it got better. A full run takes hours; keep BackTrack open while it trains.
+    Closing it stops the run, and <b>Resume</b> picks it up where it stopped.</p>
+
+  <section class="bt-panel train-panel" aria-labelledby="train-setup">
+    <h2 class="bt-label" id="train-setup">Setup</h2>
+    <div class="train-grid">
+      <label class="bt-field train-wide"><span class="bt-label">Song Deck folder</span>
+        <span class="train-path"><input class="bt-input" id="t-songdeck" placeholder="the folder with Song Deck's package.json"><button class="bt-btn bt-btn--ghost bt-btn--small" type="button" data-pick="t-songdeck">Choose…</button></span></label>
+      <label class="bt-check train-wide"><input type="checkbox" id="t-use-acestep"><span class="bt-label">Use ACE-Step performances (more realistic audio)</span></label>
+      <label class="bt-field train-wide" id="t-acestep-row"><span class="bt-label">ACE-Step 1.5 folder</span>
+        <span class="train-path"><input class="bt-input" id="t-acestep" placeholder="BackTrack starts and stops it for each run"><button class="bt-btn bt-btn--ghost bt-btn--small" type="button" data-pick="t-acestep">Choose…</button></span></label>
+      <label class="bt-field train-wide"><span class="bt-label">Python (leave empty to find it)</span>
+        <span class="train-path"><input class="bt-input" id="t-python" placeholder="found automatically"><button class="bt-btn bt-btn--ghost bt-btn--small" type="button" data-pick="t-python" data-file="1">Choose…</button></span></label>
+      <label class="bt-field train-wide"><span class="bt-label">Training data folder</span>
+        <span class="train-path"><input class="bt-input" id="t-data"><button class="bt-btn bt-btn--ghost bt-btn--small" type="button" data-pick="t-data">Choose…</button></span></label>
+      <label class="bt-field"><span class="bt-label">Songs</span><input class="bt-input" id="t-songs" type="number" min="50" step="50"></label>
+      <label class="bt-field"><span class="bt-label">Epochs</span><input class="bt-input" id="t-epochs" type="number" min="1"></label>
+      <label class="bt-field"><span class="bt-label">Device</span>
+        <span class="bt-select"><select id="t-device"><option value="auto">Best available</option><option value="cuda">NVIDIA GPU</option><option value="mps">Apple GPU</option><option value="cpu">CPU</option></select></span></label>
+    </div>
+    <div class="train-actions">
+      <button class="bt-btn bt-btn--ghost" type="button" id="t-check">Check setup</button>
+    </div>
+    <ul class="train-checks" id="t-checks" aria-live="polite"></ul>
+  </section>
+
+  <section class="bt-panel train-panel" aria-labelledby="train-run">
+    <h2 class="bt-label" id="train-run">Run</h2>
+    <div class="train-actions">
+      <button class="bt-btn" type="button" id="t-start">Start training</button>
+      <button class="bt-btn bt-btn--ghost" type="button" id="t-resume">Resume last run</button>
+      <button class="bt-btn bt-btn--ghost" type="button" id="t-stop" hidden>Stop</button>
+    </div>
+    <p class="bt-label" id="t-status" role="status"></p>
+    <ol class="train-steps" id="t-steps"></ol>
+    <pre class="train-log" id="t-log" tabindex="0" aria-label="Training output"></pre>
+  </section>
+
+  <section class="bt-panel train-panel" id="t-report-panel" hidden aria-labelledby="train-report">
+    <h2 class="bt-label" id="train-report">Report</h2>
+    <p class="train-verdict" id="t-verdict"></p>
+    <pre class="train-report" id="t-report"></pre>
+  </section>
+</main>
+
 <template id="tile">
   <a class="bt-tile">
     <div class="bt-tile__name"></div>
@@ -41,5 +93,6 @@
 </template>
 
 <script src="hub.js"></script>
+<script src="train.js"></script>
 </body>
 </html>

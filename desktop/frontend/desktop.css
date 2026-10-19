@@ -21,3 +21,28 @@ body.hub { min-height: 100vh; display: flex; flex-direction: column; }
 .bt-tile[aria-disabled="true"] { cursor: default; }
 .hub-frame { flex: 1; width: 100%; border: 0; display: block; }
 @media (max-width: 720px) { .hub-tiles { grid-template-columns: 1fr; } }
+
+/* ---------------------------------------------------------------- train */
+.train-intro { margin-top: var(--bt-s4); max-width: 70ch; font: 400 16px/1.5 var(--bt-font-work); }
+.train-panel { margin-top: var(--bt-s5); padding: var(--bt-s4); display: grid; gap: var(--bt-s4); }
+.train-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--bt-s4); }
+.train-wide { grid-column: 1 / -1; }
+.train-path { display: flex; gap: var(--bt-s2); }
+.train-path .bt-input { flex: 1; min-width: 0; }
+.train-actions { display: flex; flex-wrap: wrap; gap: var(--bt-s3); }
+.train-checks, .train-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--bt-s2); }
+.train-checks:empty { display: none; }
+.train-checks li { display: flex; align-items: center; gap: var(--bt-s3); flex-wrap: wrap; font: 400 15px/1.4 var(--bt-font-work); overflow-wrap: anywhere; }
+.train-mark { flex: none; min-width: 4.5em; }
+.train-checks li > span:nth-child(2) { flex: 1 1 24ch; min-width: 0; }
+.train-checks li[data-state="fail"] .train-mark { color: var(--bt-danger); }
+.train-steps { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.train-steps:empty { display: none; }
+.train-steps li { padding: var(--bt-s2); border: var(--bt-border) solid var(--bt-ink); font: 700 13px/1.3 var(--bt-font-work); text-transform: uppercase; }
+.train-steps li[data-status="waiting"] { color: var(--bt-ink-muted); border-color: var(--bt-ink-muted); }
+.train-steps li[data-status="running"] { background: var(--bt-accent); }
+.train-steps li[data-status="failed"], .train-steps li[data-status="interrupted"] { color: var(--bt-danger); border-color: var(--bt-danger); }
+.train-log, .train-report { margin: 0; max-height: 420px; overflow: auto; padding: var(--bt-s3); border: var(--bt-border) solid var(--bt-ink); background: var(--bt-surface); font: 400 13px/1.45 var(--bt-font-work); white-space: pre-wrap; overflow-wrap: anywhere; }
+.train-log:empty { display: none; }
+.train-verdict { font: 700 18px/1.4 var(--bt-font-work); }
+@media (max-width: 720px) { .train-grid { grid-template-columns: 1fr; } .train-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

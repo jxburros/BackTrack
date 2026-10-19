@@ -9,9 +9,10 @@
 
   // ---- views: the hub, or one app's frame ----
   function show(view) {
-    const known = view === 'hub' || apps.some((a) => a.id === view && a.state !== 'missing');
+    const known = view === 'hub' || view === 'train' || apps.some((a) => a.id === view && a.state !== 'missing');
     if (!known) view = 'hub';
     $('view-hub').hidden = view !== 'hub';
+    $('view-train').hidden = view !== 'train';
     for (const [id, f] of Object.entries(frames)) f.hidden = id !== view;
     for (const a of document.querySelectorAll('.bt-appbar a')) {
       if (a.dataset.view === view) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');

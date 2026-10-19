@@ -5,7 +5,7 @@
   "bundle": {
     "shortDescription": "BackTrack Surveil: audio in, MIDI out. Runs on your machine.",
     "externalBin": ["binaries/backtrack-surveil"],
-    "resources": { "models/": "models/" },
+    "resources": { "models/": "models/", "trainer/": null },
     "icon": [
       "icons/surveil/32x32.png",
       "icons/surveil/128x128.png",

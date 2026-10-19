@@ -185,7 +185,10 @@ def run(a) -> dict:
     steps = a.steps_per_epoch or max(1, frames // (a.crop * batch))
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=1e-4)
     total = steps * a.epochs
-    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=a.lr, total_steps=total, pct_start=0.05)
+    # OneCycle needs at least two warm-up steps; a small trial run (a few songs, one epoch) has
+    # fewer than 40 steps in all, so its warm-up is lengthened (larger runs are unchanged).
+    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=a.lr, total_steps=max(total, 4),
+                                                pct_start=max(0.05, 2 / max(total, 4)))
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     ckpt = out.with_suffix(".pt")
