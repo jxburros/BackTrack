@@ -47,6 +47,15 @@ app's name (or right-click the app, choose *Open*, then *Open*). macOS 11 or lat
   `%LOCALAPPDATA%\BackTrack\models` on Windows, `~/Library/Application Support/BackTrack/models`
   on macOS and `~/.local/share/BackTrack/models` on Linux.
 
+- **Train** (the hub only): trains Surveil's drum model on your machine, the same pipeline as
+  [training at home](training-at-home.md). Choose your Song Deck folder and, for more realistic
+  audio, your ACE-Step 1.5 folder; **Check setup** lists what's missing (BackTrack Surveil,
+  Python with PyTorch, Node.js, Song Deck and its sound bank, ACE-Step) and installs Song Deck's
+  dependencies or sound bank when that's all it needs; **Start training** runs it, with each
+  step, the output, **Stop**, **Resume last run** and the report. Settings are kept in
+  `<local data>/BackTrack/training/settings.json`, runs in the training data folder you chose.
+  Keep the hub open while it trains.
+
 If an app can't start its server, its window says why (for example, a damaged install) and what
 to do.
 
@@ -63,14 +72,17 @@ identifier in the build's config decides which product it is:
 ```
 desktop/
   frontend/          the shell's own pages: start.html (an app starting) and hub.html
-  prepare.mjs        copies the pages, ui/backtrack.css and ui/fonts into dist/; with a binary,
-                     also the sidecar (src-tauri/binaries/) and weights/*.gguf (src-tauri/models/)
+  prepare.mjs        copies the pages, ui/backtrack.css and ui/fonts into dist/, and the training
+                     code (training/*.py, weights/*.gguf) into src-tauri/trainer/ for the hub;
+                     with a binary, also the sidecar (src-tauri/binaries/) and weights/*.gguf
+                     (src-tauri/models/)
   collect.mjs        renames the installers for the release
   src-tauri/src/
     main.rs          the window, the hub's tabs, the save dialog for downloads
     server.rs        starts `<binary> serve --watch-stdin` on the app's port (or reuses a server
                      already there) and waits for GET /health
     apps.rs          the apps the shell knows, and how the hub finds them
+    train.rs         the hub's TRAIN view: settings, the setup check, running the pipeline
 ```
 
 - **An app** bundles its command-line binary as a Tauri sidecar and its models as resources.

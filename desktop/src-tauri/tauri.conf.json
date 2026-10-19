@@ -22,6 +22,7 @@
     "license": "MIT",
     "licenseFile": "../../LICENSE",
     "targets": ["nsis", "dmg", "app", "deb", "appimage"],
+    "resources": { "trainer/": "trainer/" },
     "icon": [
       "icons/hub/32x32.png",
       "icons/hub/128x128.png",

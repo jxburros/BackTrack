@@ -746,7 +746,10 @@ class Pipeline:
         # Performances with their scores: a re-judged take changes which windows are trusted.
         data = [[s["id"], [[p.get("id"), p.get("agreement"), p.get("judge"), len(p.get("windows") or [])]
                            for p in perf_list(s)]] for s in man["songs"]]
-        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True, check=False).stdout.strip()
+        try:
+            head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True, check=False).stdout.strip()
+        except OSError:  # no git (the desktop hub's bundled copy): the training code's own files decide
+            head = hashlib.sha1(b"".join(f.read_bytes() for f in sorted((REPO / "training").glob("*.py")))).hexdigest()
         blob = json.dumps({"data": data, "train": self.cfg["train"], "model": self.cfg["model"], "backtrack": head}, sort_keys=True)
         return hashlib.sha1(blob.encode()).hexdigest()
 
@@ -862,6 +865,10 @@ class Pipeline:
         model = self.model_to_score()
         if not self.dry and not model.is_file():
             raise StepFailed(f"no model to evaluate at {model} (run the train step, or pass --model FILE)")
+        man = self.manifest()
+        if not self.dry and man and not any(s.get("split") == "test" and s.get("stems") for s in man["songs"]):
+            raise StepFailed("the dataset has no test songs with drums to score on yet: render more songs "
+                             "(about a tenth of them are test songs; 50 or more is safe)")
         inputs = ["separated"]
         perf = ec["performed"]
         if perf is True or (perf == "auto" and (self.dry and self.cfg["perform"]["enabled"] or not self.dry and self.has_test_performances())):

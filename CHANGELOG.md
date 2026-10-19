@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-19
+
+### Added
+
+- **TRAIN in the BackTrack hub.** Trains Surveil's drum model without a terminal: choose the Song
+  Deck and ACE-Step 1.5 folders, **Check setup** (BackTrack Surveil, Python with PyTorch and its
+  GPU, Node.js, Song Deck, its sound bank, ACE-Step; it installs Song Deck's dependencies and sound
+  bank itself), then **Start training**. Shows each step, the output and the report, with **Stop**
+  and **Resume last run**. The hub carries the training code; ACE-Step is started for each run and
+  stopped before training.
+
+### Fixed
+
+- The training pipeline runs without git installed, and on Windows no longer opens a console
+  window for each program it starts when run from the hub.
+
 ## [0.2.0] - 2026-10-19
 
 ### Added

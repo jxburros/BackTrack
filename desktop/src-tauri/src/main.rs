@@ -10,6 +10,7 @@
 
 mod apps;
 mod server;
+mod train;
 
 use apps::{AppSpec, Install, APPS};
 use serde::Serialize;
@@ -248,12 +249,24 @@ fn main() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .manage(Shared::default())
-        .invoke_handler(tauri::generate_handler![status])
+        .manage(train::Trainer::default())
+        .invoke_handler(tauri::generate_handler![
+            status,
+            train::train_settings,
+            train::train_save,
+            train::train_pick,
+            train::train_check,
+            train::train_start,
+            train::train_fix,
+            train::train_stop,
+            train::train_poll
+        ])
         .setup(|app| setup(app.handle()))
         .build(tauri::generate_context!())
         .expect("error while starting BackTrack")
         .run(|app, event| {
             if let RunEvent::Exit = event {
+                train::stop(&app.state::<train::Trainer>());
                 for mut child in app.state::<Shared>().children.lock().unwrap().drain(..) {
                     let _ = child.kill();
                     let _ = child.wait();
