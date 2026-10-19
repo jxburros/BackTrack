@@ -93,15 +93,33 @@ third_party/     pinned ggml, cpp-httplib, single-header audio decoders
 | #   | Milestone                                                                                                                       | Projects                      | Depends on | Rough size |
 | --- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- | ---------- | ---------- |
 | M0  | Round-trip lab: measure separation and transcription on ACE-Step performances, record every run (done in 0.15.0)                | Song Deck                     | none       | done       |
-| M1  | Song Deck uses JX Runtime for LLMs: preset, discovery, pairing                                                                  | Song Deck, JX Runtime         | none       | 1–2 weeks  |
+| M1  | Song Deck uses JX Runtime for LLMs: preset, discovery, pairing (done 2026-10-18)                                                | Song Deck, JX Runtime         | none       | done       |
 | M2  | Audio-apps repository set up: shared core, server, page; transcriber running a placeholder model end to end (done, BackTrack 0.0.1) | Audio apps (Onyx as template) | none       | done       |
-| M3  | Training pipeline, including Song Deck's training-data export; first drum model; Transcriber 0.1 binaries; Song Deck preset     | Audio apps, Song Deck         | M2         | 4–6 weeks  |
+| M3  | Training pipeline, including Song Deck's training-data export; first drum model; Transcriber 0.1 binaries; Song Deck preset (built 2026-10-19; release v0.1.0 to cut) | Audio apps, Song Deck | M2 | built |
 | M4  | Transcriber in WebAssembly inside Song Deck (`"model"` plugin kind); bass and melody models                                     | Song Deck, audio apps         | M3         | 3–5 weeks  |
 | M5  | Separator 0.1: first model, binaries, Song Deck preset                                                                          | Audio apps, Song Deck         | M2         | 8–12 weeks |
 | M6  | JX Runtime runs the audio apps; Song Deck desktop runs JX Runtime in managed mode; JX Runtime becomes the default local runtime | JX Runtime, Song Deck         | M1, M3     | 3–4 weeks  |
 
-M1 and M2 can run in parallel. M5 can start once M2 is done, but its training data (especially
-vocals) needs the longest lead time, so start sourcing data early.
+M0–M2 are done: the round-trip lab (Song Deck 0.15.0); JX Runtime support in Song Deck (M1,
+[Song Deck plan, part 1](https://github.com/jxburros/Song-Deck/blob/main/docs/plans/song-deck.md#part-1-jx-runtime-support-milestones-m1-and-m6)); and BackTrack 0.0.1, with Surveil running a placeholder
+model end to end (M2).
+
+M3 is built (2026-10-19) and waits on its release:
+
+- BackTrack: the training pipeline (`training/`, with the PyTorch–C++ parity check in CI), the
+  first drum model (`weights/surveil-drums-0.1.0.gguf`: F 0.813 against Song Deck's built-in 0.495
+  on 38 held-out rendered songs' separated drums), the release workflow, and one-command training
+  at home with ACE-Step performances (`docs/training-at-home.md`).
+- Song Deck: `npm run dataset:render` and `dataset:perform` (ACE-Step takes, judged by Surveil),
+  the `backtrack-surveil` preset, the one-click binary install with SHA-256 pins, song context on
+  transcription requests, and `eval:datasets` for E-GMD, its own datasets and several
+  transcribers side by side.
+- Still to do: bump BackTrack to 0.1.0, tag `v0.1.0` (the release workflow builds and publishes),
+  then `npm run backtrack:pin -- v0.1.0` in Song Deck so the one-click install turns on. And T2's
+  "done when" asks for real recordings: E-GMD and the real test set are not scored yet.
+
+M5 can start any time, but its training data (especially vocals) needs the longest lead time, so
+start sourcing data early.
 
 ## Measuring progress: the round-trip lab (done, M0)
 

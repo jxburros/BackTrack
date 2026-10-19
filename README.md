@@ -13,9 +13,11 @@ Each works on its own (command line, or the page the binary serves) and as a pro
 transcription bridge contracts. Everything runs locally on [ggml](https://github.com/ggml-org/ggml),
 with weights in GGUF; no Python at run time.
 
-> **Status: 0.0.1, milestone M2.** The repository, shared core, HTTP server and page are in
-> place, and Surveil runs end to end, but with a **placeholder model** (hand-set weights, no
-> training). Trained models start with T1 and T2. See [the plan](docs/plans/overall.md).
+> **Status: milestone M3, release 0.1 being prepared.** Surveil has its first trained model,
+> **drums** ([weights/](weights/README.md): F 0.81 against Song Deck's built-in 0.50 on held-out
+> rendered songs). Other stems still use the placeholder model (hand-set weights) until their
+> models are trained. Training runs from `training/`, at home too
+> ([docs/training-at-home.md](docs/training-at-home.md)). See [the plan](docs/plans/overall.md).
 
 ## Quick start
 
