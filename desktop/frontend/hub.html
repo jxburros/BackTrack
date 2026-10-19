@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en" data-theme="xerox-riot">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BackTrack</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<link rel="stylesheet" href="backtrack.css">
+<link rel="stylesheet" href="desktop.css">
+</head>
+<body class="hub">
+<header class="bt-appbar">
+  <span class="bt-appbar__brand">BACKTRACK</span>
+  <nav aria-label="Apps">
+    <a href="#hub" data-view="hub" aria-current="page">Hub</a>
+    <a href="#explode" data-view="explode">Explode</a>
+    <a href="#surveil" data-view="surveil">Surveil</a>
+  </nav>
+</header>
+
+<main class="hub-view" id="view-hub">
+  <div class="hub-head">
+    <h1 class="bt-shout bt-toner bt-tilt-l2">Drop a track.</h1>
+    <span class="bt-scrawl bt-tilt-r3" aria-hidden="true">we'll take it apart.</span>
+  </div>
+  <div class="hub-drop">
+    <span class="bt-tape" style="left:-20px; top:-14px" aria-hidden="true"></span>
+    <label class="bt-dropzone bt-torn" id="drop"><span id="drop-text">WAV / FLAC / MP3 — or click to pick</span><input type="file" id="file" accept=".wav,.flac,.mp3" hidden></label>
+  </div>
+  <div class="hub-tiles" id="tiles"></div>
+  <p class="bt-caption">runs on your machine. nothing leaves it.</p>
+</main>
+
+<template id="tile">
+  <a class="bt-tile">
+    <div class="bt-tile__name"></div>
+    <div class="bt-tile__line"></div>
+    <div class="hub-tile-state bt-label"></div>
+    <div class="hub-tile-note"></div>
+  </a>
+</template>
+
+<script src="hub.js"></script>
+</body>
+</html>

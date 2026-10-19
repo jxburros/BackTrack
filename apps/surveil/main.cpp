@@ -19,6 +19,7 @@
 #include <iterator>
 #include <map>
 #include <sstream>
+#include <thread>
 
 #ifdef _WIN32
 #include <io.h>
@@ -76,6 +77,7 @@ serve:
   --max-body-mb N       largest request body (default 512)
   --max-queue N         jobs that may wait behind the running one (default 4)
   --quiet               no per-request log lines
+  --watch-stdin         stop when standard input closes (for an app that starts the server)
 
 make-placeholder:
   --kind pitched|drums  (default pitched)
@@ -346,8 +348,16 @@ int cmd_serve(const Args & a, const char * argv0, bool open_page = false) {
         so.page.push_back({f.path, f.type, std::string(reinterpret_cast<const char *>(f.data), f.size)});
     so.theme = "wiretap";
     so.quiet = a.flag("--quiet");
-    if (open_page)
-        so.on_listening = [](int port) { open_in_browser("http://127.0.0.1:" + std::to_string(port) + "/"); };
+    const bool watch_stdin = a.flag("--watch-stdin");
+    so.on_listening = [open_page, watch_stdin](int port) {
+        if (open_page) open_in_browser("http://127.0.0.1:" + std::to_string(port) + "/");
+        // The desktop apps hold a pipe to our stdin; when they go, so do we (even if they crash).
+        if (watch_stdin)
+            std::thread([] {
+                while (std::fgetc(stdin) != EOF) {}
+                on_signal(0);
+            }).detach();
+    };
     bool loopback = so.host == "127.0.0.1" || so.host == "localhost" || so.host == "::1";
     if (!loopback && so.token.empty())
         std::fprintf(stderr, "warning: listening on %s without --api-key; anyone who can reach it can use it\n", so.host.c_str());
@@ -435,7 +445,7 @@ int run(int argc, char ** argv, bool double_click) {
             return 0;
         }
         for (const std::string & f : a.flags) {
-            static const std::vector<std::string> kKnown = {"--pitch-bends", "--quiet", "--help", "--version"};
+            static const std::vector<std::string> kKnown = {"--pitch-bends", "--quiet", "--help", "--version", "--watch-stdin"};
             bool known = std::find(kKnown.begin(), kKnown.end(), f) != kKnown.end() || (cmd == "models" && f == "--json");
             if (!known) throw BadInput(f + " needs a value");
         }
