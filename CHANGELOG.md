@@ -27,9 +27,10 @@ Song Deck's preset.
 - **One command for training at home** (`python3 -m training.pipeline`): renders, has ACE-Step
   perform, trains, evaluates against the previous best and Song Deck's built-in, and reports;
   schedulable on Linux, macOS and Windows. Step by step in `docs/training-at-home.md`.
-- **Release workflow** (`.github/workflows/release.yml`): `backtrack-surveil` for linux-x64 (and
-  a Vulkan build), darwin-arm64 (Metal), darwin-x64 and win32-x64, with the models and
-  `checksums.txt`, in Onyx Engine's asset convention, which Song Deck's one-click install pins.
+- **Release workflow** (`.github/workflows/release.yml`): `backtrack-surveil` for linux-x64,
+  darwin-arm64, darwin-x64 and win32-x64 (CPU builds), with the models and `checksums.txt`, in
+  Onyx Engine's asset convention, which Song Deck's one-click install pins. GPU builds (Vulkan,
+  Metal) come later: they failed on the first release run and need a CPU fallback first.
 - `--activations` and `--hcqt` outputs; an optional deeper trunk and a temporal drum head
   (per-class onset kernels); chunk context from the receptive field.
 - Song context: `pitch_range` and `monophonic`, which Song Deck now sends.
