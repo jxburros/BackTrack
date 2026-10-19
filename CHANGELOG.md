@@ -13,6 +13,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   notes (checked in CI by `wasm/test.mjs`), transcribes a 4-minute song in about 22 s on one
   thread, and reports progress and cancels between chunks. Releases attach it as
   `backtrack-surveil-wasm-<tag>.zip`. `scripts/install-emsdk.sh` installs the pinned Emscripten.
+- **TRAIN trains bass and melody too.** **What to train** picks drums, bass or melody (lead
+  lines and vocals); each keeps its own songs and runs. The pipeline's `model.kind` renders those
+  stems, trains with `train_pitched`, scores by note F and compares with Song Deck's own
+  transcription (Song Deck runs the model itself). Every run writes the model as a Song Deck model
+  plugin, and **Install in Song Deck** puts the best one into Song Deck's plugins folder, with no
+  terminal involved.
 - `GgufFile::open_memory`: models load from bytes as well as files.
 - **Pitched training** (milestone T5, `training/train_pitched.py`): bass, melody and vocal models from
   Song Deck's rendered stems (`--stem bass`, `--stem melody,vocals`), with note, onset, offset and
@@ -22,6 +28,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   exact against the binary. CI trains, checks and scores a toy bass model.
 
 ### Changed
+
+- The pipeline keeps a configured Python's path as given instead of following its symlink, which
+  had turned a venv's `bin/python` into the system Python, without PyTorch, on macOS and Linux.
 
 - **Resampling is about 5× faster** for the usual rates (44.1 and 48 kHz to 22.05 kHz): each
   phase's kernel is computed once. Results are unchanged (within 3e-8).

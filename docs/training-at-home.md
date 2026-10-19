@@ -10,7 +10,21 @@ is given for Windows, macOS and Linux where they differ.
 [docs/desktop.md](desktop.md)) and click **TRAIN** in the top bar. Choose your Song Deck and
 ACE-Step folders, click **Check setup** (it says what's missing and can install Song Deck's
 dependencies and sound bank for you), then **Start training**. It shows each step, the output and
-the report, with **Stop** and **Resume last run**. It needs BackTrack Surveil installed, Python
+the report, with **Stop** and **Resume last run**.
+
+**What to train** picks the model: **Drums**, **Bass**, or **Melody** (lead lines and vocals). Each
+keeps its own songs and runs in the training data folder (`sd-drums` and `runs`, `sd-bass` and
+`runs-bass`, `sd-melody` and `runs-melody`), so switching doesn't disturb another model's
+training. Bass and melody don't use ACE-Step (drums only, so far), and their report compares the
+model with Song Deck's own transcription of the same parts. Under **Use it in Song Deck**,
+**Install in Song Deck** puts the best model so far into Song Deck's plugins folder
+(`~/.songdeck/plugins`). In Song Deck, open Settings → Plugins, press **Rescan** and switch it on:
+it then transcribes those parts in the page, and joins **Use specialist transcribers** and
+**Combine transcribers**. The panel also says whether Song Deck's own transcription still does
+better, in which case train more first. Bass and melody need a Song Deck with model plugins (newer than
+0.17.0).
+
+It needs BackTrack Surveil installed, Python
 with PyTorch, Node.js, a Song Deck checkout and, for performances, ACE-Step 1.5 (sections 1, 2, 4
 and 5 below); there is no BackTrack source checkout or build to do. Keep the app open while it
 trains: closing it stops the run.
@@ -567,6 +581,13 @@ and resumes with `--run latest`. If the computer crashed and a lock is left behi
 removes it when its process is gone; otherwise delete `runs/pipeline.lock` yourself.
 
 ## 11. Use the trained model
+
+**The easy way:** in the TRAIN tab, **Install in Song Deck** (above). The rest of this section is
+the same by hand, and serving the model to other programs.
+
+Every run also writes the model as a Song Deck model plugin, in
+`runs/<id>/songdeck-plugin/surveil-<kind>-trained/` (and in `runs/best/` for the best model): copy
+that folder into `~/.songdeck/plugins/` and switch it on under Settings → Plugins.
 
 The best model so far is in `~/backtrack-training/runs/best/` (with its report). Serve it:
 
