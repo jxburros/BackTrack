@@ -225,12 +225,12 @@ def s03_explode():
     press(sc, "detonate", 1350)
     sc.flash(FLASH, (1500,), 34)
 
-    sc.stamp("DONE", 720, py + 96, HAZARD, 76, -7, name="done")
+    sc.stamp("DONE", 660, py + 100, HAZARD, 70, -7, name="done")
     sc.slam("done", 7500, start=1.6, dur=110)
     sc.add(text("written", "4 stems written to stems/", rx, by + 48, 24, BONE, MONOB, tracking=2))
     sc.show("written", 7500)
     sc.keys("meta", "visible", [(0, True), (7500, False)], "step")
-    sc.scrawl("boom.", 1190, py + ph - 128, 62, FLASH, -8, name="scrawl")
+    sc.scrawl("boom.", 1160, py + ph - 128, 58, FLASH, -8, name="scrawl")
     sc.slam("scrawl", 9000, start=1.4, dur=100)
     sc.shake("title", [t for t in kicks("03-explode", 12000) if t > 7500], amp=4, dur=100)
     return sc
@@ -609,10 +609,10 @@ def s11_who_made_this():
         ("DRUM MIDI", "SURVEIL", f"{len(SURVEIL['notes'])} notes from the drum stem\nmodel surveil-drums-0.1.0\n3.9 s on 4 CPU cores",
          BONE, -2),
         ("EVERY FRAME", "VIXL", "12 editable scene files\nkeyframes, no stock footage\nexported with film-export",
-         TAPE, 3),
+         TAPE, 1.5),
     ]
     for i, (label, name, body, bg, deg) in enumerate(scraps):
-        x, y = M + (i % 2) * 880, 260 + (i // 2) * 400
+        x, y = M + (i % 2) * 880, 250 + (i // 2) * 420
         s = sc.torn(x, y, 820, 360, bg, name=f"c{i}-bg", toner=0.12, stroke=INK if bg == BONE else None,
                     stroke_width=3 if bg == BONE else None)
         sc.add(text(f"c{i}-label", label, x + 40, y + 34, 24, MUTED, MONOB, tracking=4),
