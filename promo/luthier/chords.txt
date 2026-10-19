@@ -1,0 +1,38 @@
+LUTHIER — Take It Apart
+Key: E Minor   4/4   Tempo: 160 BPM
+
+INTRO
+  I E5 [4q  strums@0:o]  →  VI C5 [4q  strums@0:o]  →  III G5 [4q  strums@0:o]  →  VII D5 [4q  strums@0:o]
+
+BUILD
+  I E5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VI C5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  III G5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VII D5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]
+
+VERSE 1
+  I E5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  I E5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VI C5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VII D5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  I E5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  I E5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VI C5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VII D5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]
+
+PRE-CHORUS 1
+  VI C5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VII D5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VI C5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VII D5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]
+
+CHORUS 1
+  III G5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VII D5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  I E5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VI C5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  III G5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VII D5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  I E5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VI C5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]
+
+VERSE 2
+  I E5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  I E5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VI C5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VII D5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  I E5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  I E5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VI C5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VII D5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]
+
+PRE-CHORUS 2
+  VI C5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VII D5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VI C5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VII D5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]
+
+CHORUS 2
+  III G5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VII D5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  I E5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VI C5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  III G5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VII D5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  I E5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VI C5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]
+
+BREAKDOWN
+  I E5 [4q  strums@0:c,0.5:c,1:c,1.5:c,2:c,2.5:c,3:c,3.5:c]  →  I E5 [4q  strums@0:c,0.5:c,1:c,1.5:c,2:c,2.5:c,3:c,3.5:c]  →  IV A5 [4q  strums@0:c,0.5:c,1:c,1.5:c,2:c,2.5:c,3:c,3.5:c]  →  IV A5 [4q  strums@0:c,0.5:c,1:c,1.5:c,2:c,2.5:c,3:c,3.5:c]
+
+BRIDGE
+  VI C5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VI C5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VII D5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VII D5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]
+
+FINAL CHORUS
+  III G5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VII D5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  I E5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VI C5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  III G5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VII D5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  I E5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VI C5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]
+
+OUTRO
+  VI C5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  VII D5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  I E5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]  →  I E5 [4q  strums@0:o,0.5:o,1:o,1.5:o,2:o,2.5:o,3:o,3.5:o]

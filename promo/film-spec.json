@@ -1,0 +1,71 @@
+{
+  "output": "backtrack-take-it-apart.mp4",
+  "spec": {
+    "version": 1,
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "shots": [
+      {
+        "source": "scenes/01-one-file.vixl",
+        "duration": 6000
+      },
+      {
+        "source": "scenes/02-title.vixl",
+        "duration": 6000
+      },
+      {
+        "source": "scenes/03-explode.vixl",
+        "duration": 12000
+      },
+      {
+        "source": "scenes/04-solo.vixl",
+        "duration": 6000
+      },
+      {
+        "source": "scenes/05-blow-it-up.vixl",
+        "duration": 12000
+      },
+      {
+        "source": "scenes/06-surveil.vixl",
+        "duration": 12000
+      },
+      {
+        "source": "scenes/07-tap-the-line.vixl",
+        "duration": 6000
+      },
+      {
+        "source": "scenes/08-song-deck.vixl",
+        "duration": 12000
+      },
+      {
+        "source": "scenes/09-hub.vixl",
+        "duration": 6000
+      },
+      {
+        "source": "scenes/10-no-cloud.vixl",
+        "duration": 6000
+      },
+      {
+        "source": "scenes/11-who-made-this.vixl",
+        "duration": 6000
+      },
+      {
+        "source": "scenes/12-out-now.vixl",
+        "duration": 13500
+      }
+    ],
+    "audio": [
+      {
+        "source": "audio/soundtrack.wav",
+        "start": 0,
+        "volume": 1.0
+      },
+      {
+        "source": "audio/effects.wav",
+        "start": 0,
+        "volume": 0.5
+      }
+    ]
+  }
+}
