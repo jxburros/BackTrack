@@ -1,6 +1,6 @@
 [package]
 name = "backtrack-desktop"
-version = "0.1.0"
+version = "0.2.0"
 description = "BackTrack desktop apps: a native window around each app's page, and the hub"
 license = "MIT"
 edition = "2021"
