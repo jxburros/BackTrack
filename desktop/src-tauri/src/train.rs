@@ -35,25 +35,9 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         let home = home();
-        let guess = |names: &[&str]| {
-            for base in [
-                home.clone(),
-                home.join("Documents"),
-                home.join("src"),
-                home.join("code"),
-            ] {
-                for n in names {
-                    let p = base.join(n);
-                    if p.is_dir() {
-                        return p.to_string_lossy().into_owned();
-                    }
-                }
-            }
-            String::new()
-        };
         Settings {
-            songdeck: guess(&["Song-Deck", "song-deck", "SongDeck"]),
-            acestep: guess(&["ACE-Step-1.5", "ace-step-1.5", "ACE-Step"]),
+            songdeck: find_songdeck().map(path_str).unwrap_or_default(),
+            acestep: find_acestep().map(path_str).unwrap_or_default(),
             use_acestep: true,
             python: String::new(),
             data: home
@@ -67,10 +51,14 @@ impl Default for Settings {
     }
 }
 
+/// A command built when its turn comes, so it can use what the step before it installed.
+type Step = Box<dyn FnOnce() -> Result<Command, String> + Send>;
+
 #[derive(Default)]
 struct Job {
     child: Option<Child>,
-    kind: String, // run | resume | songdeck-install | soundbank
+    queue: Vec<Step>, // what runs next, one after another, while each one succeeds
+    kind: String, // run | resume | songdeck-install | soundbank | uv-install | python-install
     lines: Vec<String>,
     dropped: usize, // lines dropped from the front, so offsets stay stable
     exit: Option<i32>,
@@ -108,8 +96,51 @@ fn trainer_dir(app: &AppHandle) -> Option<PathBuf> {
     Some(res.join("trainer"))
 }
 
+/// `%NAME%` references in a Windows PATH, expanded from the environment (unknown names stay).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn expand_vars(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(i) = rest.find('%') {
+        out.push_str(&rest[..i]);
+        let tail = &rest[i + 1..];
+        match tail.find('%') {
+            Some(j) if j > 0 => match std::env::var(&tail[..j]) {
+                Ok(v) => {
+                    out.push_str(&v);
+                    rest = &tail[j + 1..];
+                }
+                Err(_) => {
+                    out.push('%');
+                    rest = tail;
+                }
+            },
+            _ => {
+                out.push('%');
+                rest = tail;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The value in `reg query <key> /v Path` output: `    Path    REG_EXPAND_SZ    C:\a;C:\b`.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn reg_value(out: &str) -> String {
+    out.lines()
+        .find_map(|l| {
+            let at = l.find("REG_EXPAND_SZ").map(|i| i + 13).or_else(|| l.find("REG_SZ").map(|i| i + 6))?;
+            Some(l[at..].trim().to_string())
+        })
+        .unwrap_or_default()
+}
+
 /// A desktop app on macOS or Linux starts with a bare PATH, without Homebrew, ~/.local/bin and
 /// the like; the login shell's PATH has what a terminal would find (node, npm, uv, python).
+/// On Windows the app keeps the PATH it was started with, so a Python or uv installed since
+/// is missing from it: the registry's PATH (user and system) and the folders those installers
+/// use are added.
 fn search_path() -> String {
     static PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     PATH.get_or_init(|| {
@@ -144,6 +175,45 @@ fn search_path() -> String {
             }
         }
         add(&std::env::var("PATH").unwrap_or_default());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            let system = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+            let reg = PathBuf::from(system).join("System32").join("reg.exe");
+            for key in [
+                r"HKCU\Environment",
+                r"HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+            ] {
+                // Not command(): that would wait on this very PATH.
+                if let Ok(out) = Command::new(&reg)
+                    .args(["query", key, "/v", "Path"])
+                    .stdin(Stdio::null())
+                    .stderr(Stdio::null())
+                    .creation_flags(0x0800_0000)
+                    .output()
+                {
+                    add(&expand_vars(&reg_value(&String::from_utf8_lossy(&out.stdout))));
+                }
+            }
+            let h = home();
+            add(&h.join(".local").join("bin").to_string_lossy());
+            add(&h.join(".cargo").join("bin").to_string_lossy());
+            // python.org's installer without "Add to PATH", and the Microsoft Store's shims.
+            let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_default();
+            let mut homes = vec![local.join("Programs").join("Python")];
+            if let Some(pf) = std::env::var_os("ProgramFiles") {
+                homes.push(PathBuf::from(pf));
+            }
+            for base in homes {
+                for e in std::fs::read_dir(base).into_iter().flatten().flatten() {
+                    let name = e.file_name().to_string_lossy().to_lowercase();
+                    if name.starts_with("python3") && e.path().join("python.exe").is_file() {
+                        add(&e.path().to_string_lossy());
+                    }
+                }
+            }
+            add(&local.join("Microsoft").join("WindowsApps").to_string_lossy());
+        }
         std::env::join_paths(parts.iter())
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default()
@@ -213,6 +283,95 @@ pub async fn train_pick(app: AppHandle, title: String, file: bool) -> Option<Str
         .map(|p| p.to_string_lossy().into_owned())
 }
 
+// ---------------------------------------------------------------------------- detection
+
+fn path_str(p: PathBuf) -> String {
+    p.to_string_lossy().into_owned()
+}
+
+/// Where people keep checkouts and downloads, most likely first.
+fn roots() -> Vec<PathBuf> {
+    let h = home();
+    let mut v = vec![h.clone()];
+    for n in ["Documents", "Downloads", "Desktop", "src", "code", "repos", "dev", "projects", "GitHub", "source/repos", "Documents/GitHub"] {
+        v.push(h.join(n));
+    }
+    for n in ["OneDrive", "OneDrive - Personal"] {
+        for sub in ["Documents", "Desktop", "Downloads"] {
+            v.push(h.join(n).join(sub));
+        }
+    }
+    v.retain(|p| p.is_dir());
+    v
+}
+
+/// Every folder up to `depth` levels under the usual roots (a download unzips to
+/// `Name-main/Name-main`), skipping what never holds a project.
+fn candidate_dirs(depth: u32) -> Vec<PathBuf> {
+    fn walk(dir: &std::path::Path, depth: u32, out: &mut Vec<PathBuf>, budget: &mut u32) {
+        if depth == 0 || *budget == 0 {
+            return;
+        }
+        for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let name = e.file_name().to_string_lossy().to_lowercase();
+            if name.starts_with('.')
+                || matches!(name.as_str(), "node_modules" | "appdata" | "library" | "target" | "venv" | "__pycache__")
+                || !e.path().is_dir()
+            {
+                continue;
+            }
+            *budget = budget.saturating_sub(1);
+            out.push(e.path());
+            walk(&e.path(), depth - 1, out, budget);
+        }
+    }
+    let mut out = Vec::new();
+    let mut budget = 6000;
+    for r in roots() {
+        // The home folder itself is wide: one level there, deeper in the folders below it.
+        walk(&r, if r == home() { 1 } else { depth }, &mut out, &mut budget);
+    }
+    let mut seen = std::collections::HashSet::new();
+    out.retain(|p| seen.insert(p.clone()));
+    out
+}
+
+fn is_songdeck(d: &std::path::Path) -> bool {
+    std::fs::read_to_string(d.join("package.json")).is_ok_and(|t| t.contains("dataset:render"))
+}
+
+fn is_acestep(d: &std::path::Path) -> bool {
+    std::fs::read_to_string(d.join("pyproject.toml")).is_ok_and(|t| t.contains("acestep-api"))
+}
+
+/// A Song Deck checkout (the one with `dataset:render`), preferring one that is set up.
+fn find_songdeck() -> Option<PathBuf> {
+    let found: Vec<PathBuf> = candidate_dirs(3).into_iter().filter(|d| is_songdeck(d)).collect();
+    found.iter().find(|d| d.join("node_modules").is_dir()).or(found.first()).cloned()
+}
+
+fn find_acestep() -> Option<PathBuf> {
+    let found: Vec<PathBuf> = candidate_dirs(3).into_iter().filter(|d| is_acestep(d)).collect();
+    found.iter().find(|d| d.join(".venv").is_dir()).or(found.first()).cloned()
+}
+
+/// The settings with what's missing or wrong found automatically: a Song Deck or ACE-Step
+/// folder that isn't set (or isn't there any more) is looked for, so nobody has to.
+fn resolved(s: &Settings) -> Settings {
+    let mut s = s.clone();
+    if !is_songdeck(&expand(&s.songdeck)) {
+        if let Some(p) = find_songdeck() {
+            s.songdeck = path_str(p);
+        }
+    }
+    if s.use_acestep && !expand(&s.acestep).is_dir() {
+        if let Some(p) = find_acestep() {
+            s.acestep = path_str(p);
+        }
+    }
+    s
+}
+
 // ---------------------------------------------------------------------------- setup check
 
 #[derive(Serialize)]
@@ -223,7 +382,10 @@ pub struct Check {
     fix: Option<&'static str>, // a job the hub can run: songdeck-install | soundbank
 }
 
+// The probe leaves out torch, cuda and mps when PyTorch won't import: a Python without it
+// is still a Python, and the check names what to install.
 #[derive(Serialize, Deserialize, Default)]
+#[serde(default)]
 struct PythonInfo {
     exe: String,
     version: String,
@@ -235,39 +397,117 @@ struct PythonInfo {
 
 const PROBE: &str = "import json,sys\nr={'exe':sys.executable,'version':sys.version.split()[0]}\ntry:\n import numpy,torch\n r['torch']=torch.__version__\n r['cuda']=bool(torch.cuda.is_available())\n m=getattr(torch.backends,'mps',None)\n r['mps']=bool(m and m.is_available())\nexcept Exception as e:\n r['error']=str(e)\nprint(json.dumps(r))";
 
-fn probe_python(s: &Settings) -> Result<PythonInfo, String> {
-    let mut tried = Vec::new();
-    let cands: Vec<String> = if !s.python.trim().is_empty() {
-        vec![s.python.trim().to_string()]
-    } else if cfg!(windows) {
-        vec!["py".into(), "python".into(), "python3".into()]
+/// A way to start a Python: the program and the arguments that pick the version.
+struct Cand {
+    label: String,
+    prog: PathBuf,
+    args: Vec<String>,
+}
+
+fn venv_python(dir: &std::path::Path) -> PathBuf {
+    if cfg!(windows) {
+        dir.join("Scripts").join("python.exe")
     } else {
-        vec!["python3".into(), "python".into()]
+        dir.join("bin").join("python")
+    }
+}
+
+/// Every Python worth asking, the likeliest to have PyTorch first: the one chosen in the
+/// settings, the training venv from the guide, ACE-Step's own environment, conda, then the
+/// Pythons on PATH (a specific version before "the newest", which may be too new for PyTorch).
+fn python_candidates(s: &Settings) -> Vec<Cand> {
+    let mut v: Vec<Cand> = Vec::new();
+    let mut add_path = |label: String, prog: PathBuf| {
+        if prog.is_file() && !v.iter().any(|c| c.prog == prog && c.args.is_empty()) {
+            v.push(Cand { label, prog, args: vec![] });
+        }
     };
-    let mut best: Option<PythonInfo> = None;
-    for c in cands {
-        let prog = if c.contains('/') || c.contains('\\') {
-            Some(expand(&c))
-        } else {
-            which(&c)
-        };
-        let Some(prog) = prog else {
-            tried.push(c);
-            continue;
-        };
-        let out = command(&prog).args(["-c", PROBE]).output();
-        if let Ok(out) = out {
-            if let Ok(info) = serde_json::from_slice::<PythonInfo>(&out.stdout) {
-                if info.torch.is_some() {
-                    return Ok(info);
+    if !s.python.trim().is_empty() {
+        let c = s.python.trim().to_string();
+        let prog = if c.contains('/') || c.contains('\\') { Some(expand(&c)) } else { which(&c) };
+        if let Some(p) = prog {
+            add_path(c, p);
+        }
+    }
+    let h = home();
+    let mut venvs = vec![h.join("backtrack-training").join("venv")];
+    if !s.data.trim().is_empty() {
+        venvs.push(expand(&s.data).join("venv"));
+    }
+    if !s.acestep.trim().is_empty() {
+        venvs.push(expand(&s.acestep).join(".venv"));
+    }
+    for d in venvs {
+        add_path(format!("{}", d.display()), venv_python(&d));
+    }
+    for base in ["miniconda3", "anaconda3", "miniforge3", "mambaforge", "micromamba"] {
+        for root in [h.clone(), h.join("AppData").join("Local"), PathBuf::from("C:/ProgramData")] {
+            let r = root.join(base);
+            add_path(format!("conda {base}"), if cfg!(windows) { r.join("python.exe") } else { r.join("bin").join("python") });
+            for e in std::fs::read_dir(r.join("envs")).into_iter().flatten().flatten() {
+                add_path(format!("conda {base}/{}", e.file_name().to_string_lossy()), venv_python(&e.path()));
+                if cfg!(windows) {
+                    add_path(format!("conda {base}/{}", e.file_name().to_string_lossy()), e.path().join("python.exe"));
                 }
-                best.get_or_insert(info);
-                continue;
             }
         }
-        tried.push(c);
     }
-    best.ok_or_else(|| format!("no Python found (tried {})", tried.join(", ")))
+    if s.python.trim().is_empty() {
+        let launcher = which("py");
+        if cfg!(windows) {
+            if let Some(py) = launcher {
+                for ver in ["3.12", "3.11", "3.13", "3.10"] {
+                    v.push(Cand { label: format!("py -{ver}"), prog: py.clone(), args: vec![format!("-{ver}")] });
+                }
+                v.push(Cand { label: "py".into(), prog: py, args: vec![] });
+            }
+        }
+        for name in ["python3.12", "python3.11", "python3.13", "python3.10", "python3", "python"] {
+            if let Some(p) = which(name) {
+                if !v.iter().any(|c| c.prog == p && c.args.is_empty()) {
+                    v.push(Cand { label: name.into(), prog: p, args: vec![] });
+                }
+            }
+        }
+    }
+    v
+}
+
+fn minor(version: &str) -> u32 {
+    version.split('.').nth(1).and_then(|m| m.parse().ok()).unwrap_or(0)
+}
+
+fn probe_python(s: &Settings) -> Result<PythonInfo, String> {
+    let mut tried = Vec::new();
+    let mut best: Option<PythonInfo> = None;
+    let mut seen: Vec<String> = Vec::new();
+    for c in python_candidates(s) {
+        let out = command(&c.prog).args(&c.args).args(["-c", PROBE]).output();
+        let info = out.ok().and_then(|o| serde_json::from_slice::<PythonInfo>(&o.stdout).ok());
+        let Some(info) = info else {
+            tried.push(c.label);
+            continue;
+        };
+        if seen.contains(&info.exe) {
+            continue;
+        }
+        seen.push(info.exe.clone());
+        if info.torch.is_some() {
+            return Ok(info);
+        }
+        // Without PyTorch anywhere, name a Python PyTorch has builds for rather than the newest.
+        let ok_ver = |i: &PythonInfo| (10..=13).contains(&minor(&i.version));
+        if best.as_ref().is_none_or(|b| ok_ver(&info) && !ok_ver(b)) {
+            best = Some(info);
+        }
+    }
+    best.ok_or_else(|| {
+        if tried.is_empty() {
+            "no Python found on this computer".to_string()
+        } else {
+            format!("no working Python found (tried {})", tried.join(", "))
+        }
+    })
 }
 
 fn acestep_up() -> bool {
@@ -277,7 +517,10 @@ fn acestep_up() -> bool {
 
 #[tauri::command]
 pub async fn train_check(app: AppHandle, settings: Settings) -> Vec<Check> {
-    let s = settings;
+    let s = resolved(&settings);
+    let found = |was: &str, now: &str| -> &'static str {
+        if was.trim() != now.trim() { " (found automatically)" } else { "" }
+    };
     let mut out = Vec::new();
     let mut push = |name, state, detail: String, fix| {
         out.push(Check {
@@ -311,13 +554,17 @@ pub async fn train_check(app: AppHandle, settings: Settings) -> Vec<Check> {
         Ok(p) if p.torch.is_some() => {
             let gpu = if p.cuda { "NVIDIA GPU (CUDA)" } else if p.mps { "Apple GPU (MPS)" } else { "no GPU: trains on the CPU (slow)" };
             let state = if p.cuda || p.mps { "ok" } else { "warn" };
-            push("Python and PyTorch", state, format!("Python {} with PyTorch {}, {gpu}: {}", p.version, p.torch.unwrap_or_default(), p.exe), None);
+            let auto = if s.python.trim().is_empty() { " (found automatically)" } else { "" };
+            push("Python and PyTorch", state, format!("Python {} with PyTorch {}, {gpu}: {}{auto}", p.version, p.torch.unwrap_or_default(), p.exe), None);
         }
+        Ok(p) if minor(&p.version) > 13 => push("Python and PyTorch", "fail", format!(
+            "the Python here is {} ({}), which PyTorch has no release for yet. Install puts Python 3.12 with PyTorch beside it, for the training only (a few GB).",
+            p.version, p.exe), Some("python-install")),
         Ok(p) => push("Python and PyTorch", "fail", format!(
-            "Python {} at {} can't load PyTorch ({}). Install it: see Python and PyTorch in docs/training-at-home.md, or choose another Python above.",
-            p.version, p.exe, p.error.unwrap_or_default()), None),
+            "Python {} at {} can't load PyTorch ({}). Install puts Python 3.12 with PyTorch beside it, for the training only (a few GB), or choose another Python above.",
+            p.version, p.exe, p.error.unwrap_or_default()), Some("python-install")),
         Err(e) => push("Python and PyTorch", "fail",
-            format!("{e}. Install Python 3.11 or 3.12 and PyTorch, or choose your Python above."), None),
+            format!("{e}. Install puts Python 3.12 with PyTorch in {}, for the training only (a few GB), or choose your Python above.", expand(&s.data).join("venv").display()), Some("python-install")),
     }
 
     let npm = which(if cfg!(windows) { "npm.cmd" } else { "npm" }).or_else(|| which("npm"));
@@ -337,7 +584,7 @@ pub async fn train_check(app: AppHandle, settings: Settings) -> Vec<Check> {
         push(
             "Song Deck",
             "fail",
-            "choose your Song Deck folder (the one with package.json) above.".into(),
+            "no Song Deck folder found in your home, Documents, Downloads or Desktop: choose it above (the one with package.json).".into(),
             None,
         );
     } else if !pkg.unwrap_or_default().contains("dataset:render") {
@@ -358,7 +605,7 @@ pub async fn train_check(app: AppHandle, settings: Settings) -> Vec<Check> {
             Some("songdeck-install"),
         );
     } else {
-        push("Song Deck", "ok", sd.display().to_string(), None);
+        push("Song Deck", "ok", format!("{}{}", sd.display(), found(&settings.songdeck, &s.songdeck)), None);
         if sd.join("soundbank").is_dir() {
             push(
                 "Sound bank",
@@ -386,16 +633,17 @@ pub async fn train_check(app: AppHandle, settings: Settings) -> Vec<Check> {
                 None,
             );
         } else if s.acestep.trim().is_empty() || !expand(&s.acestep).is_dir() {
-            push("ACE-Step", "fail", "choose your ACE-Step 1.5 folder above (BackTrack starts it for each run), start it yourself, or untick Use ACE-Step.".into(), None);
+            push("ACE-Step", "fail", "no ACE-Step 1.5 folder found in your home, Documents, Downloads or Desktop: choose it above (BackTrack starts it for each run), start `acestep-api` yourself, or untick Use ACE-Step.".into(), None);
         } else if which("uv").is_none() {
-            push("ACE-Step", "fail", "uv not found, which starts ACE-Step: install uv (docs.astral.sh/uv), then check again.".into(), None);
+            push("ACE-Step", "fail", "uv not found, which starts ACE-Step: Install gets it from docs.astral.sh/uv.".into(), Some("uv-install"));
         } else {
             push(
                 "ACE-Step",
                 "ok",
                 format!(
-                    "BackTrack starts it in {} for each run and stops it before training",
-                    expand(&s.acestep).display()
+                    "BackTrack starts it in {} for each run and stops it before training{}",
+                    expand(&s.acestep).display(),
+                    found(&settings.acestep, &s.acestep)
                 ),
                 None,
             );
@@ -406,12 +654,38 @@ pub async fn train_check(app: AppHandle, settings: Settings) -> Vec<Check> {
 
 // ---------------------------------------------------------------------------- jobs
 
-fn spawn(state: &Trainer, kind: &str, mut cmd: Command) -> Result<(), String> {
+fn spawn(state: &Trainer, kind: &str, cmd: Command) -> Result<(), String> {
+    spawn_chain(state, kind, vec![Box::new(move || Ok(cmd))])
+}
+
+fn spawn_chain(state: &Trainer, kind: &str, steps: Vec<Step>) -> Result<(), String> {
     let mut job = state.job.lock().unwrap();
     if let Some(c) = job.child.as_mut() {
         if c.try_wait().ok().flatten().is_none() {
             return Err("something is already running: stop it first".into());
         }
+    }
+    *job = Job {
+        kind: kind.into(),
+        queue: steps,
+        ..Job::default()
+    };
+    if let Err(e) = next_step(&mut job, &state.job) {
+        job.queue.clear();
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// Starts the next queued command, its output going to the job's log.
+fn next_step(job: &mut Job, shared: &Arc<Mutex<Job>>) -> Result<(), String> {
+    if job.queue.is_empty() {
+        return Ok(());
+    }
+    let mut cmd = job.queue.remove(0)()?;
+    if job.kind != "run" && job.kind != "resume" {
+        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+        job.lines.push(format!("> {} {}", cmd.get_program().to_string_lossy(), args.join(" ")));
     }
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(unix)]
@@ -420,11 +694,7 @@ fn spawn(state: &Trainer, kind: &str, mut cmd: Command) -> Result<(), String> {
         cmd.process_group(0); // STOP reaches everything it started
     }
     let mut child = cmd.spawn().map_err(|e| format!("couldn't start: {e}"))?;
-    *job = Job {
-        kind: kind.into(),
-        ..Job::default()
-    };
-    let shared = state.job.clone();
+    let shared = shared.clone();
     for stream in [
         child
             .stdout
@@ -502,6 +772,7 @@ pub async fn train_start(
     settings: Settings,
     resume: bool,
 ) -> Result<(), String> {
+    let settings = resolved(&settings);
     let dir = trainer_dir(&app)
         .filter(|d| d.join("training").is_dir())
         .ok_or("the training code is missing: reinstall BackTrack")?;
@@ -526,13 +797,81 @@ pub async fn train_start(
     spawn(&state, if resume { "resume" } else { "run" }, cmd)
 }
 
-/// A setup fix: Song Deck's `npm install`, or its sound bank.
+/// uv's own installer (what docs.astral.sh/uv gives to copy), run for the user.
+fn uv_install() -> Step {
+    Box::new(|| {
+        let mut c;
+        if cfg!(windows) {
+            c = command("powershell");
+            c.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "irm https://astral.sh/uv/install.ps1 | iex"]);
+        } else {
+            c = command("sh");
+            c.args(["-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"]);
+        }
+        Ok(c)
+    })
+}
+
+/// A Python 3.12 environment with PyTorch for the training, in the data folder's `venv` (the
+/// setup check looks there). uv fetches Python 3.12 itself if the computer has none, and
+/// PyTorch comes in the build that fits: CUDA with an NVIDIA GPU, the default on a Mac, else CPU.
+fn python_install(s: &Settings) -> Vec<Step> {
+    let data = if s.data.trim().is_empty() { home().join("backtrack-training") } else { expand(&s.data) };
+    let venv = data.join("venv");
+    let py = venv_python(&venv);
+    let uv = || which("uv").ok_or("uv isn't installed: its installer didn't finish".to_string());
+    let mut steps: Vec<Step> = Vec::new();
+    {
+        let venv = venv.clone();
+        steps.push(Box::new(move || {
+            if venv.join("pyvenv.cfg").is_file() {
+                let _ = std::fs::remove_dir_all(&venv); // ours, from an earlier try
+            }
+            let mut c = command(uv()?);
+            c.args(["venv", "--python", "3.12"]).arg(&venv);
+            Ok(c)
+        }));
+    }
+    {
+        let py = py.clone();
+        steps.push(Box::new(move || {
+            let mut c = command(uv()?);
+            c.args(["pip", "install", "--python"]).arg(&py).arg("numpy");
+            Ok(c)
+        }));
+    }
+    steps.push(Box::new(move || {
+        let mut c = command(uv()?);
+        c.args(["pip", "install", "--python"]).arg(&py).arg("torch");
+        if !cfg!(target_os = "macos") {
+            let gpu = which("nvidia-smi").is_some();
+            c.args(["--index-url", if gpu { "https://download.pytorch.org/whl/cu128" } else { "https://download.pytorch.org/whl/cpu" }]);
+        }
+        Ok(c)
+    }));
+    steps
+}
+
+/// A setup fix: Song Deck's `npm install` or sound bank, uv, or Python with PyTorch.
 #[tauri::command]
 pub async fn train_fix(
     state: tauri::State<'_, Trainer>,
     settings: Settings,
     fix: String,
 ) -> Result<(), String> {
+    let settings = resolved(&settings);
+    match fix.as_str() {
+        "uv-install" => return spawn_chain(&state, &fix, vec![uv_install()]),
+        "python-install" => {
+            let mut steps = Vec::new();
+            if which("uv").is_none() {
+                steps.push(uv_install());
+            }
+            steps.extend(python_install(&settings));
+            return spawn_chain(&state, &fix, steps);
+        }
+        _ => {}
+    }
     let npm = which(if cfg!(windows) { "npm.cmd" } else { "npm" })
         .or_else(|| which("npm"))
         .ok_or("npm not found: install Node.js")?;
@@ -566,6 +905,7 @@ fn ended(state: &Trainer) -> bool {
 pub fn stop(state: &Trainer) {
     let pid = {
         let mut job = state.job.lock().unwrap();
+        job.queue.clear();
         let Some(c) = job.child.as_mut() else { return };
         if c.try_wait().ok().flatten().is_some() {
             return;
@@ -643,10 +983,19 @@ pub async fn train_poll(
 ) -> Result<Progress, ()> {
     let (running, kind, exit, lines, next) = {
         let mut job = state.job.lock().unwrap();
-        if let Some(c) = job.child.as_mut() {
-            if let Ok(Some(st)) = c.try_wait() {
-                job.exit = Some(st.code().unwrap_or(-1));
-                job.child = None;
+        let ended = job.child.as_mut().and_then(|c| c.try_wait().ok().flatten());
+        if let Some(st) = ended {
+            job.child = None;
+            job.exit = Some(st.code().unwrap_or(-1));
+            if st.success() && !job.queue.is_empty() {
+                job.exit = None;
+                if let Err(e) = next_step(&mut job, &state.job) {
+                    job.lines.push(e);
+                    job.queue.clear();
+                    job.exit = Some(1);
+                }
+            } else {
+                job.queue.clear();
             }
         }
         let start = since.saturating_sub(job.dropped).min(job.lines.len());
