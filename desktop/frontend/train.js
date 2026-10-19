@@ -11,22 +11,21 @@
     songs: 't-songs', epochs: 't-epochs', device: 't-device', kind: 't-kind',
   };
   const KIND = {
-    drums: { word: 'drum', scrawl: 'teach surveil drums.', acestep: true },
-    bass: { word: 'bass', scrawl: 'teach surveil bass.', acestep: false },
-    melody: { word: 'melody', scrawl: 'teach surveil melody.', acestep: false },
+    drums: { word: 'drum', scrawl: 'teach surveil drums.' },
+    bass: { word: 'bass', scrawl: 'teach surveil bass.' },
+    melody: { word: 'melody', scrawl: 'teach surveil melody.' },
   };
 
-  // The intro and the ACE-Step rows follow what is being trained (ACE-Step: drums only, so far).
+  // The intro follows what is being trained.
   function showKind() {
     const k = KIND[settings.kind] || KIND.drums;
     $('t-scrawl').textContent = k.scrawl;
-    $('t-intro').innerHTML = (k.acestep
-      ? "Renders songs with Song Deck, has ACE-Step play them, trains Surveil's drum model on them and tells you whether it got better."
-      : `Renders songs with Song Deck, trains Surveil's ${k.word} model on their ${k.word} parts and tells you whether it beats Song Deck's own transcription.`)
+    $('t-intro').innerHTML =
+      `Renders songs with Song Deck, has ACE-Step play them, trains Surveil's ${k.word} model on them and tells you whether it got better`
+      + (settings.kind === 'drums' ? '.' : " and whether it beats Song Deck's own transcription.")
       + ' A full run takes hours; keep BackTrack open while it trains. Closing it stops the run, and <b>Resume</b> picks it up where it stopped.'
       + ' Each kind of model keeps its own songs and runs.';
-    $('t-use-acestep-row').hidden = !k.acestep;
-    $('t-acestep-row').hidden = !k.acestep || !settings.use_acestep;
+    $('t-acestep-row').hidden = !settings.use_acestep;
   }
 
   function read() {

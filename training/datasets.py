@@ -182,11 +182,42 @@ SEPARATED_STEM = {"bass": "bass", "vocals": "vocals", "melody": "other", "piano"
                   "other": "other"}
 
 
-def read_songdeck_notes(root, stems=("bass",), audio: str = "stem") -> list[Item]:
+def part_of(stems) -> str:
+    """The part Song Deck's dataset:perform judges these stem kinds as (its PARTS)."""
+    return "bass" if "bass" in stems else "melody"
+
+
+def performed_notes(perf: dict, notes: list, duration: float, part: str, min_agreement: float = MIN_AGREEMENT,
+                    min_offset_strength: float = MIN_OFFSET_STRENGTH):
+    """A take's scores for one pitched part (perf["parts"][part]) -> (notes in performance time,
+    accepted regions), or None when the part was not judged or the take is rejected. Each note
+    moves by the take's offset plus the shift of the window holding its start (performed_take)."""
+    scored = (perf.get("parts") or {}).get(part)
+    if not scored or scored.get("agreement") is None:
+        return None
+    pseudo = {"offset": perf.get("offset", 0), "offset_strength": perf.get("offset_strength", 0),
+              "agreement": scored.get("agreement"), "windows": scored.get("windows")}
+    take = performed_take(pseudo, [(n[0], k) for k, n in enumerate(notes)], duration, min_agreement, min_offset_strength)
+    if take is None:
+        return None
+    moved, regions = take
+    out = []
+    for t, k in moved:
+        a, b, pitch, bend = notes[k]
+        out.append((t, b + (t - a), pitch, bend))
+    out.sort()
+    return out, regions
+
+
+def read_songdeck_notes(root, stems=("bass",), audio: str = "stem", min_agreement: float = MIN_AGREEMENT,
+                        min_offset_strength: float = MIN_OFFSET_STRENGTH, stats: dict | None = None) -> list[Item]:
     """Pitched items from a Song Deck dataset: the stems of the given kinds
     (`stem` field: bass, vocals, melody, piano, guitar, other) with their
     notes and bends. audio: "stem" (those stems summed), "separated" (the
-    separator's stem that holds them, SEPARATED_STEM) or "mix"."""
+    separator's stem that holds them, SEPARATED_STEM), "mix", or "performed"
+    (each ACE-Step take's separated stems for the part, with the notes moved
+    to performance time and only the accepted windows as regions; `stats`
+    gathers the counts as for drums)."""
     root = Path(root)
     man = json.loads((root / "manifest.json").read_text())
     if man.get("format") != "songdeck-dataset":
@@ -207,19 +238,59 @@ def read_songdeck_notes(root, stems=("bass",), audio: str = "stem") -> list[Item
                        for n in raw if float(n["end"]) > float(n["start"]))
         split = song.get("split", "train")
         split = "valid" if split == "validation" else split
+        names = sorted({SEPARATED_STEM.get(s["stem"], "other") for s in mine})
+        if audio == "performed":
+            items += _performed_pitched(root, song, notes, split, names, part_of(stems), source, min_agreement,
+                                        min_offset_strength, stats)
+            continue
         if audio == "stem":
             files = [root / s["audio"] for s in mine]
         elif audio == "separated":
             seps = (song.get("separated") or {}).get("stems", {})
-            names = sorted({SEPARATED_STEM.get(s["stem"], "other") for s in mine})
             if not all(seps.get(n) for n in names):
                 continue
             files = [root / seps[n] for n in names]
         elif audio == "mix":
             files = [root / song["mix"]]
         else:
-            raise ValueError(f"unknown audio choice {audio!r} for pitched stems (stem, separated or mix)")
+            raise ValueError(f"unknown audio choice {audio!r} for pitched stems (stem, separated, mix or performed)")
         items.append(Item(f"{song['id']}:{audio}", split, files, [], source, float(song.get("duration", 0)), None, notes))
+    return items
+
+
+def _performed_pitched(root, song, notes, split, names, part, source, min_agreement, min_offset_strength, stats):
+    st = stats if stats is not None else {}
+    for k in ("takes", "accepted_takes", "missing_audio", "weak_offset", "no_window", "not_judged", "seconds",
+              "accepted_seconds"):
+        st.setdefault(k, 0)
+    st.setdefault("providers", {})
+    items = []
+    duration = float(song.get("duration", 0))
+    for perf in song.get("performances") or []:
+        st["takes"] += 1
+        dur = float(perf.get("duration") or duration)
+        st["seconds"] += dur
+        seps = (perf.get("separated") or {}).get("stems") or {}
+        if not all(seps.get(n) and (root / seps[n]).exists() for n in names):
+            st["missing_audio"] += 1
+            continue
+        if not (perf.get("parts") or {}).get(part):
+            st["not_judged"] += 1
+            continue
+        take = performed_notes(perf, notes, duration, part, min_agreement, min_offset_strength)
+        if take is None:
+            st["weak_offset" if float(perf.get("offset_strength", 0)) < min_offset_strength else "no_window"] += 1
+            continue
+        pnotes, regions = take
+        provider, model = perf.get("provider", "?"), perf.get("model", "?")
+        src = (f"ACE-Step performances of Song Deck renders ({provider}, {model}), dataset {root.name}; "
+               f"{ACESTEP_LICENCE}")
+        it = Item(f"{song['id']}:performed:{perf.get('id', len(items))}", split, [root / seps[n] for n in names], [],
+                  src, dur, regions, pnotes)
+        st["accepted_takes"] += 1
+        st["accepted_seconds"] += region_seconds(it)
+        st["providers"][f"{provider} {model}"] = st["providers"].get(f"{provider} {model}", 0) + 1
+        items.append(it)
     return items
 
 

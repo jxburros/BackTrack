@@ -15,8 +15,11 @@ the report, with **Stop** and **Resume last run**.
 **What to train** picks the model: **Drums**, **Bass**, or **Melody** (lead lines and vocals). Each
 keeps its own songs and runs in the training data folder (`sd-drums` and `runs`, `sd-bass` and
 `runs-bass`, `sd-melody` and `runs-melody`), so switching doesn't disturb another model's
-training. Bass and melody don't use ACE-Step (drums only, so far), and their report compares the
-model with Song Deck's own transcription of the same parts. Under **Use it in Song Deck**,
+training. ACE-Step takes are judged for the part being trained (Song Deck's `dataset:perform
+--parts`): takes made for drums are reused for bass and melody without generating them again. The
+first bass or melody runs are judged by Song Deck's built-in transcription, which passes few windows
+on separated stems; once a model beats it, that model judges. Bass and melody reports also compare
+the model with Song Deck's own transcription of the same parts. Under **Use it in Song Deck**,
 **Install in Song Deck** puts the best model so far into Song Deck's plugins folder
 (`~/.songdeck/plugins`). In Song Deck, open Settings → Plugins, press **Rescan** and switch it on:
 it then transcribes those parts in the page, and joins **Use specialist transcribers** and

@@ -284,8 +284,10 @@ def infer_long_pitched(model, feats, chunk: int = 2048, device=None) -> dict:
 
 
 def note_pairs(items, est) -> list:
-    """(estimated, reference) [(start, pitch)] per item, for score() with pitches as classes."""
-    return [([(n[0], n[2]) for n in e], [(n[0], n[2]) for n in i.notes]) for e, i in zip(est, items)]
+    """(estimated, reference) [(start, pitch)] per item, for score() with pitches as classes, each
+    restricted to the item's accepted regions (performed audio; others are scored whole)."""
+    return [(datasets.in_regions([(n[0], n[2]) for n in e], i.regions),
+             datasets.in_regions([(n[0], n[2]) for n in i.notes], i.regions)) for e, i in zip(est, items)]
 
 
 PITCH_CLASSES = [str(p) for p in range(128)]
@@ -352,12 +354,14 @@ def load_items(a, stats: dict | None = None, stems=None) -> list:
     performed-audio counts (datasets._performed_items). With stems (pitched
     stem kinds such as ["bass"]), pitched items from the Song Deck data."""
     items = []
+    st = {} if stats is None else stats
     if stems:
         for d in a.data or []:
             for audio in a.audio.split(","):
-                items += datasets.read_songdeck_notes(d, tuple(stems), audio.strip())
+                items += datasets.read_songdeck_notes(d, tuple(stems), audio.strip(),
+                                                      getattr(a, "min_agreement", datasets.MIN_AGREEMENT),
+                                                      getattr(a, "min_offset_strength", datasets.MIN_OFFSET_STRENGTH), st)
         return items
-    st = {} if stats is None else stats
     for d in a.data or []:
         for audio in a.audio.split(","):
             items += datasets.read_songdeck(d, audio.strip(), getattr(a, "min_agreement", datasets.MIN_AGREEMENT),
@@ -438,7 +442,8 @@ def main_pitched(a, model, fe, meta):
         sys.exit("pitched models are scored on Song Deck datasets (--data)")
     items = [i for i in load_items(a, stems=stems) if a.split == "all" or i.split == a.split]
     if not items:
-        sys.exit(f"no {'/'.join(stems)} items in split {a.split}")
+        extra = " (no performed take passed --min-agreement / --min-offset-strength)" if "performed" in a.audio else ""
+        sys.exit(f"no items in split {a.split} with {'/'.join(stems)}{extra}")
     source = stems[0]
     pitch_min = int(meta.get("audio.pitch_min", 21))
     if a.binary:
@@ -446,9 +451,18 @@ def main_pitched(a, model, fe, meta):
     else:
         model.to(pick_device(a.device))
         est = predict_torch_pitched(model, fe, items, default_cache(a), source, pitch_min)
-    report = pitched_report(note_pairs(items, est))
+    pairs_ = note_pairs(items, est)
+    if "performed" in a.audio and not sum(len(r) for _, r in pairs_):
+        sys.exit(f"no items in split {a.split} with reference notes inside the accepted windows: nothing to score")
+    report = pitched_report(pairs_)
     report.update({"model": str(a.model), "split": a.split, "backend": "binary" if a.binary else "torch",
                    "audio": a.audio.split(","), "stems": stems})
+    perf = [i for i in items if i.regions is not None]
+    if perf:
+        report["performed"] = {"accepted_windows_only": True, "items": len(perf),
+                               "accepted_minutes": round(sum(datasets.region_seconds(i) for i in perf) / 60, 2),
+                               "minutes": round(sum(i.duration for i in perf) / 60, 2),
+                               "min_agreement": a.min_agreement, "min_offset_strength": a.min_offset_strength}
     o = report["overall"]
     print(f"{meta.get('general.name')} on {len(items)} {a.split} items of {'/'.join(stems)} ({report['backend']}):")
     print(f"note F {o['f']:.3f} (precision {o['precision']:.3f}, recall {o['recall']:.3f}; "

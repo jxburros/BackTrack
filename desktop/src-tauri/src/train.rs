@@ -627,7 +627,7 @@ pub async fn train_check(app: AppHandle, settings: Settings) -> Vec<Check> {
         }
     }
 
-    if s.use_acestep && kind(&s) == "drums" {
+    if s.use_acestep {
         if acestep_up() {
             push(
                 "ACE-Step",
@@ -773,12 +773,12 @@ fn write_config(app: &AppHandle, s: &Settings, python: &str) -> Result<PathBuf, 
     if s.use_acestep && !s.acestep.trim().is_empty() {
         server = serde_json::json!({ "command": ["uv", "run", "acestep-api"], "cwd": expand(&s.acestep) });
     }
-    // What each kind renders and learns (training/pipeline.py, KINDS). ACE-Step performances
-    // are used for the drum model only, so far.
-    let (name, stems, keep, audio): (&str, &str, Vec<&str>, &str) = match kind(s) {
-        "bass" => ("Surveil bass", "bass", vec!["bass"], "stem,separated"),
-        "melody" => ("Surveil melody", "melody,vocals", vec!["vocals", "other"], "stem,separated"),
-        _ => ("Surveil drums", "drums", vec!["drums"], "stem,separated,performed"),
+    // What each kind renders and learns (training/pipeline.py, KINDS); ACE-Step takes are judged
+    // for the kind's part (Song Deck's dataset:perform --parts).
+    let (name, stems, keep): (&str, &str, Vec<&str>) = match kind(s) {
+        "bass" => ("Surveil bass", "bass", vec!["bass"]),
+        "melody" => ("Surveil melody", "melody,vocals", vec!["vocals", "other"]),
+        _ => ("Surveil drums", "drums", vec!["drums"]),
     };
     let cfg = serde_json::json!({
         "songdeck": expand(&s.songdeck),
@@ -789,8 +789,8 @@ fn write_config(app: &AppHandle, s: &Settings, python: &str) -> Result<PathBuf, 
         "runs_dir": runs_dir(s),
         "model": { "kind": kind(s), "name": name, "version": "0.1.0", "file_stem": format!("surveil-{}", kind(s)) },
         "render": { "songs": s.songs.max(50), "only_stems": stems, "keep_separated": keep },
-        "perform": { "enabled": s.use_acestep && kind(s) == "drums", "server": server },
-        "train": { "epochs": s.epochs.max(1), "device": s.device, "audio": audio },
+        "perform": { "enabled": s.use_acestep, "server": server },
+        "train": { "epochs": s.epochs.max(1), "device": s.device, "audio": "stem,separated,performed" },
     });
     std::fs::create_dir_all(&data).map_err(|e| format!("can't create {}: {e}", data.display()))?;
     let p = config_path(s);

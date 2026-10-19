@@ -1,7 +1,7 @@
 """Train a pitched Surveil model (bass, melody, vocals) and export it as GGUF.
 
     python3 -m training.train_pitched --data DIR [--data DIR2] --stem bass \\
-        --out surveil-bass-0.1.0.gguf [--epochs 30] [--minutes 0] [--audio stem,separated] \\
+        --out surveil-bass-0.1.0.gguf [--epochs 30] [--minutes 0] [--audio stem,separated,performed] \\
         [--device auto] [--patience 0] [--resume]
 
 Data: Song Deck dataset directories (`npm run dataset:render`, with the
@@ -13,7 +13,8 @@ drum model; each step trains on random crops with the receptive radius as
 context. The targets are the four heads of the pitched graph
 (docs/gguf-metadata.md): note (frames a note sounds), onset and offset (a
 Gaussian around each start and end), and contour (the pitch curve, with
-bends, at 3 bins per semitone). The best epoch on the valid split (note F:
+bends, at 3 bins per semitone). The best epoch on the valid split (performed audio: ACE-Step takes, trained and
+scored only inside their accepted windows, as for drums) (note F:
 onset within 50 ms at the same pitch, notes picked as the binary picks them)
 is exported. A .pt checkpoint next to --out allows --resume;
 <out>.history.json and <out>.summary.json are the record. Exit code 0 on
@@ -98,29 +99,47 @@ def note_targets(notes, start: int, length: int, frame_rate: float, n_out: int, 
     return note, onset, offset, contour
 
 
-def batches(feats, notes, crop, radius, batch, rng, gain_db, frame_rate, n_out, bps):
+def batches(feats, notes, masks, crop, radius, batch, rng, gain_db, frame_rate, n_out, bps):
     """Endless numpy batches (ext, targets, mask, gain): ext (N, crop + 2r, n_ext)
     float16, targets (N, crop, 3 * n_out + n_out * bps) as note | onset |
-    offset | contour, mask all ones (the drum batches' shape), gain or None."""
-    lengths = np.array([f.shape[1] for f in feats], np.float64)
+    offset | contour, mask (N, crop) of the frames the loss counts, gain or None.
+    Items are drawn in proportion to their usable frames; an item with a mask
+    (performed audio) gets crops around a random accepted frame."""
+    usable = [np.flatnonzero(m) if m is not None else None for m in masks]
+    lengths = np.array([f.shape[1] if u is None else len(u) for f, u in zip(feats, usable)], np.float64)
     p = lengths / lengths.sum()
     while True:
-        xs, ys = [], []
+        xs, ys, ms = [], [], []
         for k in rng.choice(len(feats), size=batch, p=p):
             T = feats[k].shape[1]
-            s = int(rng.integers(0, max(1, T - crop + 1)))
+            if usable[k] is None:
+                s = int(rng.integers(0, max(1, T - crop + 1)))
+            else:
+                f = int(usable[k][rng.integers(0, len(usable[k]))])
+                s = min(max(0, f - int(rng.integers(0, crop))), max(0, T - crop))
             xs.append(features.ext_window(feats[k], s - radius, crop + 2 * radius))
             ys.append(np.concatenate(note_targets(notes[k], s, crop, frame_rate, n_out, bps), axis=1))
+            m = np.ones(crop, np.float32)
+            if masks[k] is not None:
+                m[:] = 0
+                n = min(crop, T - s)
+                m[:n] = masks[k][s : s + n]
+            ms.append(m)
         g = rng.uniform(-gain_db, gain_db, size=batch).astype(np.float32) / 80 if gain_db else None
-        yield np.stack(xs), np.stack(ys), np.ones((batch, crop), np.float32), g
+        yield np.stack(xs), np.stack(ys), np.stack(ms), g
 
 
-def loss_fn(out, y, r, crop, n_out, pos_weight, offset_weight):
+def loss_fn(out, y, m, r, crop, n_out, pos_weight, offset_weight):
     """Weighted BCE per head (positives weigh pos_weight in note and onset;
-    offsets count offset_weight), summed."""
+    offsets count offset_weight), summed, over the frames the mask keeps."""
     tn, to, tf, tc = torch.split(y, [n_out, n_out, n_out, y.shape[-1] - 3 * n_out], dim=-1)
     head = lambda name: out[name][:, r : r + crop]
-    bce = lambda logits, t, pw: F.binary_cross_entropy_with_logits(logits, t, weight=1 + (pw - 1) * t)
+    keep = m[..., None]
+    count = lambda t: (m.sum() * t.shape[-1]).clamp(min=1)
+
+    def bce(logits, t, pw):
+        w = (1 + (pw - 1) * t) * keep
+        return F.binary_cross_entropy_with_logits(logits, t, weight=w, reduction="sum") / count(t)
     return (bce(head("note"), tn, pos_weight) + bce(head("onset"), to, pos_weight)
             + offset_weight * bce(head("offset"), tf, pos_weight) + bce(head("contour"), tc, pos_weight))
 
@@ -145,8 +164,16 @@ def run(a) -> dict:
     print(f"device {device}, batch {batch}, stems {', '.join(stems)}", flush=True)
 
     fe = FrontEnd()
-    items = evaluate.load_items(a, stems=stems)
+    stats: dict = {}
+    items = evaluate.load_items(a, stats, stems=stems)
     print(datasets.summary_notes(items))
+    if stats.get("takes"):
+        print(f"performed: {stats['accepted_takes']} of {stats['takes']} takes used, "
+              f"{stats['accepted_seconds'] / 60:.1f} of {stats['seconds'] / 60:.1f} min accepted (agreement F >= "
+              f"{a.min_agreement:g}); not judged for this part: {stats['not_judged']}, weak offset "
+              f"{stats['weak_offset']}, no window {stats['no_window']}, missing audio {stats['missing_audio']}", flush=True)
+    elif "performed" in a.audio.split(","):
+        print("performed: no performances in the manifest(s)", flush=True)
     train = [i for i in items if i.split == "train" and i.notes]
     valid = [i for i in items if i.split == "valid" and i.notes]
     if not train:
@@ -164,7 +191,8 @@ def run(a) -> dict:
     print(f"model: {model.n_params()} parameters, receptive radius {r} frames ({1e3 * r / fe.frame_rate:.0f} ms)")
     feats = [features.load(p, fe) for p in train_paths]
     notes = [i.notes for i in train]
-    frames = int(sum(f.shape[1] for f in feats))
+    masks = [features.region_mask(i.regions, f.shape[1], fe.frame_rate) for i, f in zip(train, feats)]
+    frames = int(sum(f.shape[1] if m is None else m.sum() for f, m in zip(feats, masks)))
     steps = a.steps_per_epoch or max(1, frames // (a.crop * batch))
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=1e-4)
     total = steps * a.epochs
@@ -186,7 +214,7 @@ def run(a) -> dict:
         print(f"--resume: no checkpoint at {ckpt}, starting from scratch", flush=True)
 
     expand = features.Expander(fe, device)
-    data = prefetch(batches(feats, notes, a.crop, r, batch, rng, a.gain_db, fe.frame_rate, n_out, bps))
+    data = prefetch(batches(feats, notes, masks, a.crop, r, batch, rng, a.gain_db, fe.frame_rate, n_out, bps))
     began = time.time()
     epoch = start_epoch
     stopped = "completed"
@@ -195,8 +223,8 @@ def run(a) -> dict:
         model.train()
         losses = torch.zeros((), device=device)
         for _ in range(steps):
-            x, y, _m = to_device(next(data), expand, device)
-            loss = loss_fn(model(x), y, r, a.crop, n_out, a.pos_weight, a.offset_weight)
+            x, y, m = to_device(next(data), expand, device)
+            loss = loss_fn(model(x), y, m, r, a.crop, n_out, a.pos_weight, a.offset_weight)
             opt.zero_grad()
             loss.backward()
             opt.step()
@@ -237,6 +265,13 @@ def run(a) -> dict:
                 "lr": a.lr, "pos_weight": a.pos_weight, "offset_weight": a.offset_weight, "gain_db": a.gain_db,
                 "seed": a.seed, "layout": layout, "inputs": [s.strip() for s in a.audio.split(",")],
                 "datasets": [Path(d).name for d in a.data], "device": device.type, "stopped": stopped}
+    if stats.get("takes"):
+        training["performed"] = {"takes": stats["takes"], "accepted_takes": stats["accepted_takes"],
+                                 "minutes": round(stats["seconds"] / 60, 2),
+                                 "accepted_minutes": round(stats["accepted_seconds"] / 60, 2),
+                                 "min_agreement": a.min_agreement, "min_offset_strength": a.min_offset_strength,
+                                 "rejected": {k: stats[k] for k in ("not_judged", "weak_offset", "no_window",
+                                                                    "missing_audio")}}
     _atomic(out, lambda p: export.save(p, model, fe, name=a.name or f"Surveil {source}", version=a.version,
                                        license=a.license, sources=sources, stems=stems, pitch_min=PITCH_MIN,
                                        extra={"audio.training": json.dumps(training)}))
@@ -251,7 +286,12 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data", action="append", required=True, help="Song Deck dataset directory (repeatable)")
     ap.add_argument("--stem", default="bass", help="stem kinds to learn, comma-separated (default bass)")
-    ap.add_argument("--audio", default="stem", help="stem | separated | mix, comma-separated for several (default stem)")
+    ap.add_argument("--audio", default="stem",
+                    help="stem | separated | mix | performed, comma-separated for several (default stem)")
+    ap.add_argument("--min-agreement", type=float, default=datasets.MIN_AGREEMENT,
+                    help="performed audio: use only windows whose note F against the labels is at least this (default 0.6)")
+    ap.add_argument("--min-offset-strength", type=float, default=datasets.MIN_OFFSET_STRENGTH,
+                    help="performed audio: skip takes whose offset estimate is weaker than this (default 0.2)")
     ap.add_argument("--cache", default=None, help="feature cache directory (default: <first data dir>/.cache)")
     ap.add_argument("--out", required=True, help="GGUF to write, e.g. surveil-bass-0.1.0.gguf")
     ap.add_argument("--epochs", type=int, default=30)
@@ -289,9 +329,10 @@ def main(argv=None):
         traceback.print_exc()
         print(f"train_pitched: FAILED: {type(e).__name__}: {e}", flush=True)
         sys.exit(1)
+    score = (f"valid note F {res['valid_note_f']:.3f}" if res["training"]["valid_items"]
+             else "no valid split (best = lowest loss)")
     print(f"train_pitched: OK wrote {res['out']}: best epoch {res['best_epoch']}/{res['epochs']} "
-          f"(of {res['max_epochs']}, {res['stopped']}), valid note F {res['valid_note_f']:.3f}, "
-          f"{res['minutes']:.1f} min on {res['device']}", flush=True)
+          f"(of {res['max_epochs']}, {res['stopped']}), {score}, {res['minutes']:.1f} min on {res['device']}", flush=True)
 
 
 if __name__ == "__main__":

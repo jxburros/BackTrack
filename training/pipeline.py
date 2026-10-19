@@ -21,8 +21,9 @@ Steps (docs/training-at-home.md walks through all of it):
             previous best on the separated test split. weights/ is never written.
 
 Bass and melody models (model.kind "bass" or "melody") render those stems, train on the clean
-and separated stems (ACE-Step performances are used for drums only, so far), and are scored by
-note F; Song Deck's harness runs the model in-process (`--transcriber model=<file>`).
+and separated stems and on ACE-Step takes judged for that part (Song Deck's dataset:perform
+--parts), and are scored by note F; Song Deck runs the model in-process (`model=<file>`) as the
+judge and in its harness.
 
 Every step streams its output to the console and runs/<id>/<step>.log; the first step that fails
 stops the run (non-zero exit), and `--run latest` resumes it from that step. A lock file in the
@@ -633,17 +634,22 @@ class Pipeline:
         songs = [s for s in man["songs"] if s.get("split") in splits]
         if pc["songs"]:
             songs = songs[: int(pc["songs"])]
-        return sum(max(0, int(pc["takes"]) - len(perf_list(s))) for s in songs) if songs else 0
+        missing = sum(max(0, int(pc["takes"]) - len(perf_list(s))) for s in songs) if songs else 0
+        if self.pitched:  # takes made for another part, still to be judged for this one
+            missing += sum(1 for s in songs for q in perf_list(s) if not (q.get("parts") or {}).get(self.kind))
+        return missing
 
     def judge_model(self) -> Path | None:
-        """The model that judges agreement: runs/best's when it beat Song Deck's built-in drum
-        transcription in its report (a weak early model would judge worse), else weights/'s."""
+        """The model that judges agreement: runs/best's when it beat Song Deck's built-in
+        transcription in its report (a weak early model would judge worse), else (drums) weights/'s."""
         best = self.best_model()
         if best:
             info = read_json(self.best_dir() / "best.json", {}) or {}
             if info.get("beats_internal"):
                 return best
             self.r.say("runs/best's model did not beat Song Deck's built-in transcription in its report: not a judge")
+        if self.pitched:
+            return None
         w = sorted((REPO / "weights").glob("surveil-drums-*.gguf"))
         return w[-1] if w else None
 
@@ -654,8 +660,19 @@ class Pipeline:
             return False
 
     def judge_args(self, tag: str):
-        """(--judge args, the server to stop) per perform.judge: auto | internal | backtrack-surveil[=URL]."""
+        """(--judge args, the server to stop) per perform.judge: auto | internal | backtrack-surveil[=URL].
+        Pitched models: auto judges with the best model run in-process by Song Deck (model=<file>),
+        when it beat Song Deck's built-in transcription; else the built-in one."""
         j = str(self.cfg["perform"]["judge"] or "internal")
+        if self.pitched:
+            if j != "auto":
+                return ["--judge", j], None
+            model = self.judge_model()
+            if model is None:
+                self.r.say(f"no {self.kind} model beats Song Deck's built-in transcription yet: it judges the takes")
+                return ["--judge", "internal"], None
+            self.r.say(f"agreement judged by {model.name} (run by Song Deck in-process)")
+            return ["--judge", f"model={model}"], None
         if not self.songdeck_knows("scripts/dataset/perform.ts", "judge"):
             msg = "this Song Deck's dataset:perform has no --judge (update Song Deck)"
             if j in ("auto", "internal"):
@@ -678,9 +695,9 @@ class Pipeline:
 
     def step_perform(self) -> dict:
         pc = self.cfg["perform"]
-        if self.pitched:
-            self.r.say(f"ACE-Step performances are used for the drum model only (so far): none for {self.kind}")
-            return {"skipped": f"drums only ({self.kind} model)"}
+        if self.pitched and pc["enabled"] and not self.songdeck_knows("scripts/dataset/perform.ts", "--parts"):
+            self.r.say(f"this Song Deck's dataset:perform judges drums only (update Song Deck): no ACE-Step takes for {self.kind}")
+            return {"skipped": "dataset:perform has no --parts"}
         if not pc["enabled"]:
             self.r.say("perform.enabled is false: no ACE-Step performances")
             return {"skipped": "disabled"}
@@ -706,6 +723,8 @@ class Pipeline:
                 "--skip-existing"]
         if pc["songs"]:
             args += ["--songs", str(pc["songs"])]
+        if self.songdeck_knows("scripts/dataset/perform.ts", "--parts"):
+            args += ["--parts", self.kind]
         before, t0, failures = self.count_takes(), time.time(), []
         try:
             jargs, judge = self.judge_args("perform")
@@ -794,11 +813,10 @@ class Pipeline:
 
     def train_audio(self) -> list[str]:
         audio = as_list(self.cfg["train"]["audio"])
-        if self.pitched and "performed" in audio:
-            audio = [a for a in audio if a != "performed"] or ["stem"]
-        elif "performed" in audio and not self.dry:
+        if "performed" in audio and not self.dry:
             man = self.manifest() or {"songs": []}
-            if not any(perf_list(s) for s in man["songs"]):
+            judged = (lambda q: (q.get("parts") or {}).get(self.kind)) if self.pitched else (lambda q: True)
+            if not any(judged(q) for s in man["songs"] for q in perf_list(s)):
                 self.r.say("WARNING: train.audio has performed, but the dataset has no performances: training without")
                 audio = [a for a in audio if a != "performed"]
         return audio
@@ -872,7 +890,8 @@ class Pipeline:
 
     def has_test_performances(self) -> bool:
         man = self.manifest() or {"songs": []}
-        return any(perf_list(s) for s in man["songs"] if s.get("split") == self.cfg["evaluate"]["split"])
+        ok = (lambda q: (q.get("parts") or {}).get(self.kind)) if self.pitched else (lambda q: True)
+        return any(ok(q) for s in man["songs"] if s.get("split") == self.cfg["evaluate"]["split"] for q in perf_list(s))
 
     def evaluate_one(self, model: Path, audio: str, out: Path) -> bool:
         """False when nothing in the split could be scored (performed: no take passed the thresholds)."""
@@ -910,14 +929,14 @@ class Pipeline:
         inputs = ["separated"]
         perf = ec["performed"]
         if self.pitched:
-            # No performances for pitched models (yet). A dataset rendered without --separate (or with
-            # these stems pruned) has no separated audio: the clean stems are scored instead.
+            # A dataset rendered without --separate (or with these stems pruned) has no separated
+            # audio: the clean stems are scored instead.
             want = set(KINDS[self.kind]["separated"])
             if not self.dry and man and not any(want & set(((sg.get("separated") or {}).get("stems") or {}))
                                                 for sg in man["songs"] if sg.get("split") == ec["split"]):
                 self.r.say(f"the dataset has no separated {'/'.join(sorted(want))} stems: scoring the clean stems instead")
                 inputs = ["stem"]
-        elif perf is True or (perf == "auto" and (self.dry and self.cfg["perform"]["enabled"] or not self.dry and self.has_test_performances())):
+        if perf is True or (perf == "auto" and (self.dry and self.cfg["perform"]["enabled"] or not self.dry and self.has_test_performances())):
             inputs.append("performed")
         done = {}
         for audio in list(inputs):
@@ -1014,8 +1033,6 @@ class Pipeline:
         """After a new best model: re-score the existing takes' windows with it (no ACE-Step), so the
         next run trains on labels judged by the better model."""
         pc = self.cfg["perform"]
-        if self.pitched:
-            return {"skipped": "drums only"}
         if not pc["enabled"] or not pc["rejudge_after_promotion"]:
             return {"skipped": "off (perform.rejudge_after_promotion)"}
         promoted = (self.state["steps"].get("report", {}).get("info") or {}).get("promoted")
@@ -1034,6 +1051,13 @@ class Pipeline:
         model = self.best_model() or (self.best_dir() / self.candidate().name)
         if self.dry:
             self.r.say("if this run's model is promoted, re-judge the takes with it:")
+        if self.pitched:
+            # Song Deck runs the model itself; only this part's scores change.
+            self.r.npm("dataset:perform", ["--data", str(self.ds), "--rejudge", "--judge", f"model={model}",
+                                           "--parts", self.kind, "--split", ",".join(as_list(pc["split"])),
+                                           "--window", str(pc["window"]),
+                                           "--min-offset-strength", str(pc["min_offset_strength"])])
+            return {"judge": model.name, "takes": self.count_takes()}
         proc, url = self.serve_model(model, "rejudge")
         try:
             self.r.npm("dataset:perform", ["--data", str(self.ds), "--rejudge", "--judge", f"backtrack-surveil={url}",
@@ -1504,7 +1528,7 @@ def schedule_main(argv) -> int:
 def preflight(p: Pipeline, steps: list[str]) -> None:
     cfg, problems = p.cfg, []
     sd = resolve(cfg["songdeck"])
-    needs_sd = {"render"} & set(steps) or ("perform" in steps and cfg["perform"]["enabled"] and not p.pitched) or ("evaluate" in steps and cfg["evaluate"]["songdeck_baseline"])
+    needs_sd = {"render"} & set(steps) or ("perform" in steps and cfg["perform"]["enabled"]) or ("evaluate" in steps and cfg["evaluate"]["songdeck_baseline"])
     if needs_sd:
         pkg = read_json(sd / "package.json", None)
         if not pkg:
@@ -1512,7 +1536,7 @@ def preflight(p: Pipeline, steps: list[str]) -> None:
         else:
             scripts = pkg.get("scripts", {})
             want = [s for s, step in (("dataset:render", "render"), ("dataset:perform", "perform"), ("eval:datasets", "evaluate"))
-                    if step in steps and not (step == "perform" and (not cfg["perform"]["enabled"] or p.pitched))]
+                    if step in steps and not (step == "perform" and not cfg["perform"]["enabled"])]
             for s in want:
                 if s not in scripts:
                     problems.append(f"Song Deck at {sd} has no `npm run {s}` (update it: git pull && npm install)")
@@ -1528,7 +1552,7 @@ def preflight(p: Pipeline, steps: list[str]) -> None:
         r = subprocess.run([python_cmd(cfg), "-c", "import numpy, torch"], capture_output=True, text=True, check=False)
         if r.returncode != 0:
             problems.append(f"{python_cmd(cfg)} cannot import numpy and torch (see docs/training-at-home.md, step 2)")
-    if "perform" in steps and cfg["perform"]["enabled"] and not p.pitched and not cfg["perform"]["server"]["command"] \
+    if "perform" in steps and cfg["perform"]["enabled"] and not cfg["perform"]["server"]["command"] \
             and not http_up(cfg["perform"]["url"].rstrip("/")):
         msg = (f"nothing answers at {cfg['perform']['url']}: start ACE-Step's API server first (uv run acestep-api), "
                "set perform.server.command, or set perform.enabled false")

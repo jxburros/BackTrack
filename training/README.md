@@ -260,7 +260,11 @@ bend at that frame, so models learn the bends Song Deck's renders carry). The lo
 BCE on each (`--pos-weight` for the positives, `--offset-weight` for the offset head). The valid
 score is the note F (onset within ±50 ms at the same pitch, notes picked by
 `evaluate.pick_pitched`, which the parity script checks exact against the binary); the best
-epoch is exported. The rest works as `train_drums` does: the feature cache, `--resume`,
+epoch is exported. `--audio performed` trains on ACE-Step takes judged for the part (Song Deck's `dataset:perform
+--parts bass` or `melody`; `datasets.read_songdeck_notes`): the notes move to each take's timing
+(offset plus window shift, as for drums) and only windows with note F ≥ `--min-agreement` count, in
+the loss and in validation. `evaluate.py --audio performed` scores those windows too. The rest works
+as `train_drums` does: the feature cache, `--resume`,
 `--patience`, `--minutes`, `--device`, `<out>.history.json` and `<out>.summary.json`, and the
 `train_pitched: OK|FAILED|INTERRUPTED` last line.
 
@@ -335,7 +339,7 @@ an unknown key is an error. Relative paths are relative to the BackTrack checkou
 | `dataset` | `~/backtrack-training/sd-drums` | the dataset directory (Song Deck's layout); the feature cache goes in its `.cache` |
 | `runs_dir` | `~/backtrack-training/runs` | one folder per run, `best/`, the lock and `scheduled.log` |
 | `low_priority` | `true` | run the steps at low CPU priority (nice 10 / below normal), so the computer stays usable |
-| `model.kind` | `drums` | what to train: `drums`, `bass` or `melody` (melody and vocal stems). Bass and melody train with `train_pitched`, skip ACE-Step (drums only, so far), are scored by note F and compared with Song Deck by running the model in Song Deck's harness (`--transcriber model=<file>`; needs a Song Deck with model plugins). Give each kind its own `dataset` and `runs_dir`, and set `render.only_stems` (`bass`; `melody,vocals`) and `render.keep_separated` (`["bass"]`; `["vocals", "other"]`) to match |
+| `model.kind` | `drums` | what to train: `drums`, `bass` or `melody` (melody and vocal stems). Bass and melody train with `train_pitched` (performed audio: ACE-Step takes judged for that part by Song Deck's `dataset:perform --parts`, the judge being the best model of the kind once it beats Song Deck's built-in transcription, run in-process with `--judge model=<file>`), are scored by note F and compared with Song Deck by running the model in Song Deck's harness (`--transcriber model=<file>`; needs a Song Deck with model plugins). Give each kind its own `dataset` and `runs_dir`, and set `render.only_stems` (`bass`; `melody,vocals`) and `render.keep_separated` (`["bass"]`; `["vocals", "other"]`) to match |
 | `model.name`, `.version`, `.file_stem` | `Surveil drums`, `0.1.0`, `surveil-drums` | `general.name`, `general.version`, and the file name `<file_stem>-<version>.gguf` (its stem is the model id) |
 | `render.songs` | `400` | songs in the dataset; raise it to add songs |
 | `render.grow_per_run`, `.max_songs` | `0`, `0` | add this many songs on every run (nightly growth), up to `max_songs` (0: no cap) |

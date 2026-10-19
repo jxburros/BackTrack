@@ -13,6 +13,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   notes (checked in CI by `wasm/test.mjs`), transcribes a 4-minute song in about 22 s on one
   thread, and reports progress and cancels between chunks. Releases attach it as
   `backtrack-surveil-wasm-<tag>.zip`. `scripts/install-emsdk.sh` installs the pinned Emscripten.
+- **ACE-Step takes for bass and melody.** `train_pitched --audio performed` trains on takes Song Deck
+  judged for that part (`dataset:perform --parts`), inside their accepted windows only. The pipeline
+  makes and judges them for the kind being trained, with the best model of that kind as the judge
+  once it beats Song Deck's built-in transcription, and scores the performed test windows. The TRAIN
+  tab offers ACE-Step for every kind.
 - **TRAIN trains bass and melody too.** **What to train** picks drums, bass or melody (lead
   lines and vocals); each keeps its own songs and runs. The pipeline's `model.kind` renders those
   stems, trains with `train_pitched`, scores by note F and compares with Song Deck's own
