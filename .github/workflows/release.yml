@@ -4,7 +4,6 @@
 # "Release binaries"):
 #
 #   backtrack-surveil-<tag>-<platformKey>.tar.gz   (.zip on Windows)
-#   backtrack-surveil-<tag>-linux-x64-vulkan.tar.gz (GPU build)
 #   surveil-drums-<version>.gguf                    (models, separate downloads)
 #   checksums.txt                                   ("<sha256>  <file>" per asset)
 #
@@ -40,18 +39,16 @@ jobs:
             archive-ext: tar.gz
             bin-name: backtrack-surveil
             gpu: ""
-          # The Vulkan build needs glslc, packaged from Ubuntu 24.04 on.
-          - asset-key: linux-x64-vulkan
-            runs-on: ubuntu-24.04
-            archive-ext: tar.gz
-            bin-name: backtrack-surveil
-            gpu: -DBACKTRACK_VULKAN=ON
-          # Metal is on every Apple Silicon Mac; the CPU backend stays as fallback.
+          # CPU only for now. GPU builds (Vulkan, Metal) wait until the graph
+          # runs through a backend scheduler with CPU fallback and has been tried
+          # on real GPUs: on v0.1.0 the Metal build failed transcribing (not yet
+          # diagnosed) and the Vulkan build lacked SPIR-V headers. The models are
+          # small enough that the CPU is fast.
           - asset-key: darwin-arm64
             runs-on: macos-latest
             archive-ext: tar.gz
             bin-name: backtrack-surveil
-            gpu: -DBACKTRACK_METAL=ON
+            gpu: ""
           - asset-key: darwin-x64
             runs-on: macos-15-intel
             archive-ext: tar.gz
@@ -102,16 +99,12 @@ jobs:
       - name: Install ggml
         run: npm ci
 
-      - name: Install Vulkan headers and glslc
-        if: contains(matrix.gpu, 'VULKAN')
-        run: sudo apt-get update && sudo apt-get install -y libvulkan-dev glslc
-
       - name: Configure (Release, static)
         if: runner.os != 'Windows'
         run: |
           cpu_flags=()
           case "${{ matrix.asset-key }}" in
-            linux-x64*|darwin-x64) cpu_flags=(-DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON) ;;
+            linux-x64|darwin-x64) cpu_flags=(-DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON) ;;
           esac
           cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
             -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DGGML_CCACHE=OFF "${cpu_flags[@]}" ${{ matrix.gpu }}
