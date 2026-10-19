@@ -4,6 +4,7 @@
 # Onyx Engine's convention (its docs/building.md, "Release binaries"):
 #
 #   backtrack-surveil-<tag>-<platformKey>.tar.gz   (.zip on Windows)
+#   backtrack-surveil-wasm-<tag>.zip                (the WebAssembly build; wasm/README.md)
 #   surveil-drums-<version>.gguf                    (models, separate downloads)
 #   checksums.txt                                   ("<sha256>  <file>" per asset)
 #   BackTrack-Surveil-<version>-<platformKey>-setup.exe, .dmg, .deb, .AppImage
@@ -190,6 +191,66 @@ jobs:
           path: ${{ env.ARCHIVE }}
           if-no-files-found: error
 
+  # The WebAssembly build (Song Deck vendors it), checked against the native
+  # binary like in CI.
+  wasm:
+    name: build (wasm)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install ggml and Emscripten
+        run: |
+          npm ci
+          bash scripts/install-emsdk.sh "$RUNNER_TEMP/emsdk"
+
+      - name: Build (wasm and native)
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_CCACHE=OFF
+          cmake --build build --target backtrack-surveil -j 4
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          emcmake cmake -B build-wasm -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-wasm -j 4
+
+      - name: Check against the native binary
+        run: |
+          python3 scripts/make-test-audio.py test-audio
+          node wasm/test.mjs build-wasm test-audio build/backtrack-surveil
+
+      - name: Package
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="$DISPATCH_TAG"
+          else
+            tag="${GITHUB_REF#refs/tags/}"
+          fi
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::invalid release tag"; exit 1; }
+          name="backtrack-surveil-wasm-$tag.zip"
+          stage=$(mktemp -d)
+          cp build-wasm/surveil.mjs build-wasm/surveil-core.mjs build-wasm/surveil-core.wasm wasm/README.md "$stage/"
+          cp LICENSE "$stage/LICENSE"
+          cp third_party/nlohmann/LICENSE.MIT "$stage/LICENSE-nlohmann-json"
+          cp third_party/dr_libs/LICENSE "$stage/LICENSE-dr_libs"
+          cp node_modules/@jxburros/ggml-source/LICENSE "$stage/LICENSE-ggml"
+          (cd "$stage" && zip -q "$OLDPWD/$name" *)
+          echo "ARCHIVE=$name" >> "$GITHUB_ENV"
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtrack-surveil-wasm
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+
   desktop:
     uses: ./.github/workflows/desktop.yml
     with:
@@ -203,8 +264,8 @@ jobs:
   # after a fix; the release is updated in place.
   release:
     name: publish release
-    needs: [build, desktop]
-    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    needs: [build, wasm, desktop]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.wasm.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

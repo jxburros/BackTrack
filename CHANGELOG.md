@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-19
+
+### Added
+
+- **Surveil in WebAssembly** (milestone T4, `wasm/`): the same pipeline built with Emscripten,
+  with a JS wrapper (`createSurveil()`), for Song Deck's job worker. It gives the native binary's
+  notes (checked in CI by `wasm/test.mjs`), transcribes a 4-minute song in about 22 s on one
+  thread, and reports progress and cancels between chunks. Releases attach it as
+  `backtrack-surveil-wasm-<tag>.zip`. `scripts/install-emsdk.sh` installs the pinned Emscripten.
+- **ACE-Step takes for bass and melody.** `train_pitched --audio performed` trains on takes Song Deck
+  judged for that part (`dataset:perform --parts`), inside their accepted windows only. The pipeline
+  makes and judges them for the kind being trained, with the best model of that kind as the judge
+  once it beats Song Deck's built-in transcription, and scores the performed test windows. The TRAIN
+  tab offers ACE-Step for every kind.
+- **TRAIN trains bass and melody too.** **What to train** picks drums, bass or melody (lead
+  lines and vocals); each keeps its own songs and runs. The pipeline's `model.kind` renders those
+  stems, trains with `train_pitched`, scores by note F and compares with Song Deck's own
+  transcription (Song Deck runs the model itself). Every run writes the model as a Song Deck model
+  plugin, and **Install in Song Deck** puts the best one into Song Deck's plugins folder, with no
+  terminal involved.
+- `GgufFile::open_memory`: models load from bytes as well as files.
+- **Pitched training** (milestone T5, `training/train_pitched.py`): bass, melody and vocal models from
+  Song Deck's rendered stems (`--stem bass`, `--stem melody,vocals`), with note, onset, offset and
+  contour targets (bends included), the valid note F as the binary picks notes, and the drum
+  trainer's cache, resume, patience and records. `evaluate.py` scores pitched models (note F,
+  through PyTorch or the binary) and `parity.py` checks the pitched note picking's Python port
+  exact against the binary. CI trains, checks and scores a toy bass model.
+
+### Changed
+
+- The pipeline keeps a configured Python's path as given instead of following its symlink, which
+  had turned a venv's `bin/python` into the system Python, without PyTorch, on macOS and Linux.
+
+- **Resampling is about 5× faster** for the usual rates (44.1 and 48 kHz to 22.05 kHz): each
+  phase's kernel is computed once. Results are unchanged (within 3e-8).
+
 ## [0.3.3] - 2026-10-19
 
 ### Fixed

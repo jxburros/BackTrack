@@ -8,8 +8,25 @@
 
   const fields = {
     songdeck: 't-songdeck', acestep: 't-acestep', python: 't-python', data: 't-data',
-    songs: 't-songs', epochs: 't-epochs', device: 't-device',
+    songs: 't-songs', epochs: 't-epochs', device: 't-device', kind: 't-kind',
   };
+  const KIND = {
+    drums: { word: 'drum', scrawl: 'teach surveil drums.' },
+    bass: { word: 'bass', scrawl: 'teach surveil bass.' },
+    melody: { word: 'melody', scrawl: 'teach surveil melody.' },
+  };
+
+  // The intro follows what is being trained.
+  function showKind() {
+    const k = KIND[settings.kind] || KIND.drums;
+    $('t-scrawl').textContent = k.scrawl;
+    $('t-intro').innerHTML =
+      `Renders songs with Song Deck, has ACE-Step play them, trains Surveil's ${k.word} model on them and tells you whether it got better`
+      + (settings.kind === 'drums' ? '.' : " and whether it beats Song Deck's own transcription.")
+      + ' A full run takes hours; keep BackTrack open while it trains. Closing it stops the run, and <b>Resume</b> picks it up where it stopped.'
+      + ' Each kind of model keeps its own songs and runs.';
+    $('t-acestep-row').hidden = !settings.use_acestep;
+  }
 
   function read() {
     const s = { ...settings };
@@ -25,12 +42,14 @@
   function fill() {
     for (const [k, id] of Object.entries(fields)) $(id).value = settings[k] ?? '';
     $('t-use-acestep').checked = settings.use_acestep;
-    $('t-acestep-row').hidden = !settings.use_acestep;
+    showKind();
   }
 
   async function save() {
+    const kindChanged = settings && settings.kind !== $('t-kind').value;
     settings = read();
-    $('t-acestep-row').hidden = !settings.use_acestep;
+    showKind();
+    if (kindChanged) { $('t-log').textContent = ''; next = 0; }
     try { await invoke('train_save', { settings }); } catch { /* the next start says why */ }
   }
 
@@ -112,6 +131,37 @@
     $('t-stop').disabled = false;
   });
 
+  // The best model so far, and INSTALL IN SONG DECK (its model plugin into Song Deck's plugins folder).
+  function showBest(best) {
+    $('t-best-panel').hidden = !best || !best.plugin;
+    if (!best || !best.plugin) return;
+    const f = (v) => (typeof v === 'number' ? v.toFixed(2) : '–');
+    const word = (KIND[settings.kind] || KIND.drums).word;
+    let text = `Best ${word} model so far: run ${best.run}, F ${f(best.value)} on the test songs`;
+    if (typeof best.songdeck === 'number') {
+      text += `; Song Deck's own transcription: ${f(best.songdeck)}.`;
+      if (typeof best.value === 'number' && best.value <= best.songdeck)
+        text += " Song Deck's own does better so far: train more (more songs or epochs) before relying on it.";
+    } else text += '.';
+    text += best.installed
+      ? ' It is installed in Song Deck: switch it on under Settings → Plugins (press Rescan if Song Deck is open).'
+      : ` Install puts it in Song Deck's plugins folder (${best.plugins_dir}).`;
+    $('t-best').textContent = text;
+    $('t-install').textContent = best.installed ? 'Installed: reinstall' : 'Install in Song Deck';
+  }
+  $('t-install').addEventListener('click', async () => {
+    $('t-install').disabled = true;
+    $('t-install-status').textContent = 'Installing…';
+    try {
+      const where = await invoke('train_install', { settings });
+      $('t-install-status').textContent = `Installed in ${where}. In Song Deck: Settings → Plugins, press Rescan, switch it on.`;
+    } catch (e) {
+      $('t-install-status').textContent = String(e);
+    } finally {
+      $('t-install').disabled = false;
+    }
+  });
+
   function verdict(summary) {
     const p = summary && summary.promotion;
     if (!p) return '';
@@ -154,6 +204,7 @@
       li.textContent = STEP_NAMES[name] + ': ' + status;
       steps.append(li);
     }
+    showBest(p.best);
     $('t-report-panel').hidden = !p.report;
     if (p.report) {
       $('t-report').textContent = p.report;

@@ -35,15 +35,17 @@
 <main class="hub-view train" id="view-train" hidden>
   <div class="hub-head">
     <h1 class="bt-shout bt-toner bt-tilt-l2">Train it.</h1>
-    <span class="bt-scrawl bt-tilt-r3" aria-hidden="true">teach surveil drums.</span>
+    <span class="bt-scrawl bt-tilt-r3" aria-hidden="true" id="t-scrawl">teach surveil drums.</span>
   </div>
-  <p class="train-intro">Renders songs with Song Deck, has ACE-Step play them, trains Surveil's drum model on them and
+  <p class="train-intro" id="t-intro">Renders songs with Song Deck, has ACE-Step play them, trains Surveil's drum model on them and
     tells you whether it got better. A full run takes hours; keep BackTrack open while it trains.
     Closing it stops the run, and <b>Resume</b> picks it up where it stopped.</p>
 
   <section class="bt-panel train-panel" aria-labelledby="train-setup">
     <h2 class="bt-label" id="train-setup">Setup</h2>
     <div class="train-grid">
+      <label class="bt-field train-wide"><span class="bt-label">What to train</span>
+        <span class="bt-select"><select id="t-kind"><option value="drums">Drums (kick, snare, toms, hi-hats, cymbals)</option><option value="bass">Bass</option><option value="melody">Melody (lead lines and vocals)</option></select></span></label>
       <label class="bt-field train-wide"><span class="bt-label">Song Deck folder</span>
         <span class="train-path"><input class="bt-input" id="t-songdeck" placeholder="the folder with Song Deck's package.json"><button class="bt-btn bt-btn--ghost bt-btn--small" type="button" data-pick="t-songdeck">Choose…</button></span></label>
       <label class="bt-check train-wide"><input type="checkbox" id="t-use-acestep"><span class="bt-label">Use ACE-Step performances (more realistic audio)</span></label>
@@ -80,6 +82,15 @@
     <h2 class="bt-label" id="train-report">Report</h2>
     <p class="train-verdict" id="t-verdict"></p>
     <pre class="train-report" id="t-report"></pre>
+  </section>
+
+  <section class="bt-panel train-panel" id="t-best-panel" hidden aria-labelledby="train-best">
+    <h2 class="bt-label" id="train-best">Use it in Song Deck</h2>
+    <p class="train-verdict" id="t-best"></p>
+    <div class="train-actions">
+      <button class="bt-btn" type="button" id="t-install">Install in Song Deck</button>
+    </div>
+    <p class="bt-label" id="t-install-status" role="status"></p>
   </section>
 </main>
 

@@ -9,8 +9,11 @@ likelihoods (--activations); then
   hcqt   training.frontend on the WAV file (decode, resample, HCQT) vs the binary's HCQT;
   model  the PyTorch model (ggml_parity on) on the binary's HCQT vs its likelihoods;
   e2e    PyTorch end to end from the WAV file vs the binary's likelihoods;
-  picks  drums: evaluate.pick_drums (the Python port of the note picking) on
-         the binary's likelihoods vs the hits in its --json output (exact).
+  picks  evaluate.pick_drums / pick_pitched (the Python ports of the note
+         picking) on the binary's likelihoods vs the notes in its --json
+         output (exact starts and pitches). Pitched models run as their
+         first stem (bass, vocals and melody one note at a time), the
+         placeholders as piano (polyphonic), so both pickers are covered.
 
 Likelihoods differ by float16 rounding: ggml_conv_2d rounds its operands to
 float16, and a value that lands on the other side of a rounding step in one
@@ -41,7 +44,7 @@ import torch
 from . import export, gguf
 from .frontend import FrontEnd, hcqt_of_file
 from .model import DRUM_CLASSES, DRUM_NOTES, SurveilCNN
-from .evaluate import pick_drums
+from .evaluate import pick_drums, pick_pitched
 from .synth import Kit, pattern, render
 
 HEADS = ("onset", "note", "offset", "contour")
@@ -126,10 +129,14 @@ def run_binary(binary, clip, model_path, d: Path, stem: str):
     return {k: np.array(a[k], np.float32) for k in HEADS if k in a}, np.load(hq), a
 
 
-def picks_differ(info: dict) -> int:
-    """Hits where the Python picking on the binary's likelihoods and the binary's own notes disagree."""
+def picks_differ(info: dict, stem: str = "drums") -> int:
+    """Notes where the Python picking on the binary's likelihoods and the binary's own notes disagree."""
     onset = np.array(info["onset"], np.float32)
-    mine = sorted((round(t, 4), info["class_notes"][c]) for t, c, _ in pick_drums(onset, info["frame_rate"]))
+    if info["kind"] == "drums":
+        mine = sorted((round(t, 4), info["class_notes"][c]) for t, c, _ in pick_drums(onset, info["frame_rate"]))
+    else:
+        acts = {"note": np.array(info["note"], np.float32), "onset": onset}
+        mine = sorted((round(t, 4), p) for t, _e, p, _c in pick_pitched(acts, info["frame_rate"], stem, info["pitch_min"]))
     theirs = sorted((round(n["start"], 4), n["pitch"]) for n in info["notes"])
     return len(set(mine) ^ set(theirs))
 
@@ -161,7 +168,8 @@ def main(argv=None):
         for mp in models:
             model, fe, meta = export.load(mp)
             model.ggml_parity = True
-            stem = "drums" if model.kind == "drums" else "piano"
+            first = (meta.get("audio.stems") or ["mix"])[0]
+            stem = "drums" if model.kind == "drums" else first if first in ("bass", "vocals", "melody", "guitar") else "piano"
             for clip in clips:
                 cpp, cpp_h, info = run_binary(a.binary, clip, mp, d, stem)
                 if info["receptive_radius"] != model.receptive_radius:
@@ -179,11 +187,11 @@ def main(argv=None):
                 with torch.no_grad():
                     dm = max_diff(model.infer(torch.from_numpy(cpp_h)[None]), cpp)
                     de = max_diff(model.infer(torch.from_numpy(py_h)[None]), cpp)
-                dp = picks_differ(info) if model.kind == "drums" else 0
+                dp = picks_differ(info, stem)
                 ok = dh <= a.tol_hcqt and dm <= a.tol_model and de <= a.tol_e2e and dp == 0
                 failures += not ok
                 rows.append({"model": mp.name, "clip": clip.name, "hcqt": dh, "model_diff": dm, "e2e": de, "picks_differ": dp, "ok": ok})
-                print(f"{mp.name[:40]:40s} {clip.name[:24]:24s} {dh:9.2e} {dm:9.2e} {de:9.2e} {dp if model.kind == 'drums' else '-':>5}"
+                print(f"{mp.name[:40]:40s} {clip.name[:24]:24s} {dh:9.2e} {dm:9.2e} {de:9.2e} {dp:>5}"
                       f"{'' if ok else '  FAIL'}", flush=True)
     if a.json:
         Path(a.json).write_text(json.dumps(rows, indent=1))

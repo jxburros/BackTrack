@@ -1,5 +1,6 @@
 // The hub's TRAIN view: runs the training pipeline (training/pipeline.py, bundled with the hub as
-// a resource) for the drum model, with its settings, a setup check and the run's progress.
+// a resource) for the drum, bass or melody model, with its settings, a setup check, the run's
+// progress, and INSTALL IN SONG DECK for the best model (a Song Deck model plugin).
 //
 // The pipeline needs things the hub can't ship: Python with PyTorch, a Song Deck checkout (it
 // renders the training songs) and, for ACE-Step performances, an ACE-Step 1.5 install. The setup
@@ -30,6 +31,7 @@ pub struct Settings {
     pub songs: u32,
     pub epochs: u32,
     pub device: String, // auto | cuda | mps | cpu
+    pub kind: String,   // what to train: drums | bass | melody
 }
 
 impl Default for Settings {
@@ -47,6 +49,7 @@ impl Default for Settings {
             songs: 400,
             epochs: 30,
             device: "auto".into(),
+            kind: "drums".into(),
         }
     }
 }
@@ -730,8 +733,31 @@ fn next_step(job: &mut Job, shared: &Arc<Mutex<Job>>) -> Result<(), String> {
     Ok(())
 }
 
+/// Each kind of model has its own songs and runs; the drum model keeps the folders it always had.
+fn kind(s: &Settings) -> &'static str {
+    match s.kind.as_str() {
+        "bass" => "bass",
+        "melody" => "melody",
+        _ => "drums",
+    }
+}
+
+fn dataset_dir(s: &Settings) -> PathBuf {
+    expand(&s.data).join(format!("sd-{}", kind(s)))
+}
+
+fn runs_dir(s: &Settings) -> PathBuf {
+    match kind(s) {
+        "drums" => expand(&s.data).join("runs"),
+        k => expand(&s.data).join(format!("runs-{k}")),
+    }
+}
+
 fn config_path(s: &Settings) -> PathBuf {
-    expand(&s.data).join("pipeline.json")
+    match kind(s) {
+        "drums" => expand(&s.data).join("pipeline.json"),
+        k => expand(&s.data).join(format!("pipeline-{k}.json")),
+    }
 }
 
 /// The pipeline's config, from the settings; everything else keeps the pipeline's defaults
@@ -747,16 +773,24 @@ fn write_config(app: &AppHandle, s: &Settings, python: &str) -> Result<PathBuf, 
     if s.use_acestep && !s.acestep.trim().is_empty() {
         server = serde_json::json!({ "command": ["uv", "run", "acestep-api"], "cwd": expand(&s.acestep) });
     }
+    // What each kind renders and learns (training/pipeline.py, KINDS); ACE-Step takes are judged
+    // for the kind's part (Song Deck's dataset:perform --parts).
+    let (name, stems, keep): (&str, &str, Vec<&str>) = match kind(s) {
+        "bass" => ("Surveil bass", "bass", vec!["bass"]),
+        "melody" => ("Surveil melody", "melody,vocals", vec!["vocals", "other"]),
+        _ => ("Surveil drums", "drums", vec!["drums"]),
+    };
     let cfg = serde_json::json!({
         "songdeck": expand(&s.songdeck),
         "backtrack_binary": surveil.binary,
         "python": python,
         "npm": npm,
-        "dataset": data.join("sd-drums"),
-        "runs_dir": data.join("runs"),
-        "render": { "songs": s.songs.max(50) },
+        "dataset": dataset_dir(s),
+        "runs_dir": runs_dir(s),
+        "model": { "kind": kind(s), "name": name, "version": "0.1.0", "file_stem": format!("surveil-{}", kind(s)) },
+        "render": { "songs": s.songs.max(50), "only_stems": stems, "keep_separated": keep },
         "perform": { "enabled": s.use_acestep, "server": server },
-        "train": { "epochs": s.epochs.max(1), "device": s.device },
+        "train": { "epochs": s.epochs.max(1), "device": s.device, "audio": "stem,separated,performed" },
     });
     std::fs::create_dir_all(&data).map_err(|e| format!("can't create {}: {e}", data.display()))?;
     let p = config_path(s);
@@ -956,11 +990,74 @@ pub struct Progress {
     steps: Vec<(String, String)>, // (step, status)
     report: Option<String>,       // report.md of the shown run, once written
     summary: Option<serde_json::Value>,
+    best: Option<serde_json::Value>, // the best model so far, its Song Deck plugin and whether it's installed
+}
+
+/// Song Deck's plugins folder for plugins you add: <data dir>/plugins, the data dir being
+/// $SONGDECK_DATA_DIR or ~/.songdeck (Song Deck's server and desktop app both use it).
+fn songdeck_plugins_dir() -> PathBuf {
+    std::env::var_os("SONGDECK_DATA_DIR")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join(".songdeck"))
+        .join("plugins")
+}
+
+/// runs/best's Song Deck plugin folder (the pipeline's report step writes it): (id, folder).
+fn best_plugin(s: &Settings) -> Option<(String, PathBuf)> {
+    let best = runs_dir(s).join("best");
+    let info: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(best.join("best.json")).ok()?).ok()?;
+    let id = info["plugin"].as_str()?.to_string();
+    let dir = best.join("songdeck-plugin").join(&id);
+    dir.join("songdeck-plugin.json").is_file().then_some((id, dir))
+}
+
+fn best_info(s: &Settings) -> Option<serde_json::Value> {
+    let best = runs_dir(s).join("best");
+    let info: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(best.join("best.json")).ok()?).ok()?;
+    let report: serde_json::Value = std::fs::read_to_string(best.join("report.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    let plugin = best_plugin(s);
+    let installed = plugin.as_ref().is_some_and(|(id, dir)| {
+        let there = songdeck_plugins_dir().join(id).join("songdeck-plugin.json");
+        std::fs::read(there).ok() == std::fs::read(dir.join("songdeck-plugin.json")).ok()
+    });
+    Some(serde_json::json!({
+        "run": info["run"],
+        "value": info["value"],
+        "songdeck": report["promotion"]["songdeck_internal"],
+        "plugin": plugin.map(|(id, _)| id),
+        "installed": installed,
+        "plugins_dir": songdeck_plugins_dir(),
+    }))
+}
+
+/// INSTALL IN SONG DECK: copies runs/best's model plugin into Song Deck's plugins folder,
+/// replacing an earlier one with the same id. Song Deck then lists it under Settings → Plugins.
+#[tauri::command]
+pub async fn train_install(settings: Settings) -> Result<String, String> {
+    let settings = resolved(&settings);
+    let (id, src) = best_plugin(&settings).ok_or("no trained model to install yet: finish a training run first")?;
+    let dest = songdeck_plugins_dir().join(&id);
+    let tmp = songdeck_plugins_dir().join(format!(".{id}.installing"));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).map_err(|e| format!("can't write to {}: {e}", tmp.display()))?;
+    for entry in std::fs::read_dir(&src).map_err(|e| e.to_string())? {
+        let p = entry.map_err(|e| e.to_string())?.path();
+        if p.is_file() {
+            std::fs::copy(&p, tmp.join(p.file_name().unwrap())).map_err(|e| format!("copying {}: {e}", p.display()))?;
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dest);
+    std::fs::rename(&tmp, &dest).map_err(|e| format!("can't install into {}: {e}", dest.display()))?;
+    Ok(dest.to_string_lossy().into_owned())
 }
 
 /// The newest run folder in the runs directory (names are timestamps).
 fn latest_run(s: &Settings) -> Option<PathBuf> {
-    let runs = expand(&s.data).join("runs");
+    let runs = runs_dir(s);
     let mut dirs: Vec<PathBuf> = std::fs::read_dir(runs)
         .ok()?
         .filter_map(|e| e.ok().map(|e| e.path()))
@@ -1039,5 +1136,6 @@ pub async fn train_poll(
         steps,
         report,
         summary,
+        best: best_info(&settings),
     })
 }

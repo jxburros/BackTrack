@@ -7,7 +7,7 @@
   "runs_dir": "~/backtrack-training/runs",
   "low_priority": true,
 
-  "model": { "name": "Surveil drums", "version": "0.1.0", "file_stem": "surveil-drums" },
+  "model": { "kind": "drums", "name": "Surveil drums", "version": "0.1.0", "file_stem": "surveil-drums" },
 
   "render": {
     "songs": 400,

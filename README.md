@@ -13,10 +13,11 @@ Each works on its own (command line, or the page the binary serves) and as a pro
 transcription bridge contracts. Everything runs locally on [ggml](https://github.com/ggml-org/ggml),
 with weights in GGUF; no Python at run time.
 
-> **Status: milestone M3, release 0.1 being prepared.** Surveil has its first trained model,
-> **drums** ([weights/](weights/README.md): F 0.81 against Song Deck's built-in 0.50 on held-out
-> rendered songs). Other stems still use the placeholder model (hand-set weights) until their
-> models are trained. Training runs from `training/`, at home too
+> **Status: milestone M4.** Surveil has its first trained model, **drums**
+> ([weights/](weights/README.md): F 0.81 against Song Deck's built-in 0.50 on held-out rendered
+> songs), and runs in WebAssembly inside Song Deck ([wasm/](wasm/README.md)). Bass, melody and
+> vocal models train with `training.train_pitched`; until they are trained, those stems use the
+> placeholder model (hand-set weights). Training runs from `training/`, at home too
 > ([docs/training-at-home.md](docs/training-at-home.md)). See [the plan](docs/plans/overall.md).
 
 ## Quick start
@@ -76,6 +77,9 @@ note at a time.
 Start `backtrack-surveil serve` and add a transcription provider at `http://127.0.0.1:8826`.
 It implements Song Deck's `POST /transcribe` contract plus an optional `context` field, with
 `GET /info`, `GET /health` and `POST /cancel`; see [docs/http-api.md](docs/http-api.md).
+
+Song Deck can also run Surveil inside its page with nothing to install: the WebAssembly build
+([wasm/](wasm/README.md)) with a model installed as a Song Deck model plugin.
 
 ## How it works
 

@@ -20,6 +20,17 @@ std::unique_ptr<GgufFile> GgufFile::open(const std::string & path, bool meta_onl
     return f;
 }
 
+std::unique_ptr<GgufFile> GgufFile::open_memory(const void * data, size_t size, const std::string & label) {
+    std::unique_ptr<GgufFile> f(new GgufFile());
+    f->path_ = label;
+    gguf_init_params params{};
+    params.no_alloc = false;
+    params.ctx = &f->data_;
+    f->gguf_ = gguf_init_from_buffer(data, size, params);
+    if (!f->gguf_) throw BadInput("cannot read GGUF data " + label);
+    return f;
+}
+
 std::unique_ptr<GgufFile> GgufFile::adopt(gguf_context * gguf, ggml_context * tensors, const std::string & label) {
     std::unique_ptr<GgufFile> f(new GgufFile());
     f->gguf_ = gguf;

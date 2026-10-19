@@ -259,7 +259,8 @@ fn main() {
             train::train_start,
             train::train_fix,
             train::train_stop,
-            train::train_poll
+            train::train_poll,
+            train::train_install
         ])
         .setup(|app| setup(app.handle()))
         .build(tauri::generate_context!())

@@ -46,7 +46,8 @@ build/backtrack-surveil song.wav --stem drums --models-dir models -o drums.mid
 | `synth.py`         | Synthetic drum songs written as a Song Deck dataset (also the readers' test data)                                |
 | `features.py`      | HCQT features cached on disk (float16, memory-mapped), onset targets, crops                                      |
 | `train_drums.py`   | Training loop and export                                                                                         |
-| `evaluate.py`      | Onset F-measure per class, through PyTorch or through the binary                                                 |
+| `train_pitched.py` | The same for pitched models (bass, melody, vocals): note, onset, offset and contour targets from the stems' notes and bends |
+| `evaluate.py`      | Onset F-measure per class (drums) or note F (pitched), through PyTorch or through the binary; `pick_pitched` ports the binary's pitched note picking |
 | `check_performed.py` | Checks training on performed (ACE-Step) audio on a tiny synthetic set: shifted labels, windows, masking, resume (CI) |
 | `pipeline.py`      | The whole run in one command: render, perform, train, evaluate, parity, report; resumable and schedulable ([below](#the-pipeline-one-command)) |
 | `midi.py`          | Standard MIDI File reading (through the tempo map) and a minimal writer                                          |
@@ -234,6 +235,47 @@ script) picks the hits.
 `"performed": {"accepted_windows_only": true, "items", "accepted_minutes", "minutes",
 "min_agreement", "min_offset_strength"}`. Every report carries `"audio"` (the inputs scored).
 
+## Pitched models: bass, melody and vocals (T5)
+
+```bash
+npm run dataset:render -- --out ~/data/sd-bass --songs 400 --seconds 60 --only-stems bass --separate   # in Song Deck
+python3 -m training.train_pitched --data ~/data/sd-bass --stem bass --audio stem,separated \
+    --out models/surveil-bass-0.1.0.gguf --epochs 30 --patience 6
+python3 -m training.evaluate --model models/surveil-bass-0.1.0.gguf --data ~/data/sd-bass \
+    --audio separated --split test --binary build/backtrack-surveil
+```
+
+`--stem` names the stem kinds in Song Deck's manifest to learn (`bass`, `vocals`, `melody`,
+`piano`, `guitar`, `other`), comma-separated: `--stem melody,vocals` for one melody model. The
+first is the model's source for note picking, so bass, melody and vocals are picked one note at a
+time, as the binary does for them. `--audio separated` reads the separator's stem that holds the
+part (`bass` → bass, `vocals` → vocals, the others → other; `datasets.SEPARATED_STEM`). The model
+writes `audio.stems` = the `--stem` list, so `backtrack-surveil` (and Song Deck's model plugins)
+use it for those stems.
+
+The targets are the pitched graph's four heads: **note** (1 on the frames a note sounds),
+**onset** and **offset** (a Gaussian of 0.6 frames around each start and end), and **contour**
+(the pitch curve at 3 bins per semitone, a Gaussian of 1 bin around the note's pitch plus its
+bend at that frame, so models learn the bends Song Deck's renders carry). The loss is a weighted
+BCE on each (`--pos-weight` for the positives, `--offset-weight` for the offset head). The valid
+score is the note F (onset within ±50 ms at the same pitch, notes picked by
+`evaluate.pick_pitched`, which the parity script checks exact against the binary); the best
+epoch is exported. `--audio performed` trains on ACE-Step takes judged for the part (Song Deck's `dataset:perform
+--parts bass` or `melody`; `datasets.read_songdeck_notes`): the notes move to each take's timing
+(offset plus window shift, as for drums) and only windows with note F ≥ `--min-agreement` count, in
+the loss and in validation. `evaluate.py --audio performed` scores those windows too. The rest works
+as `train_drums` does: the feature cache, `--resume`,
+`--patience`, `--minutes`, `--device`, `<out>.history.json` and `<out>.summary.json`, and the
+`train_pitched: OK|FAILED|INTERRUPTED` last line.
+
+The default layout (`PITCHED_LAYOUT`: a 5×5 and a 3×3 trunk conv to 16 and 8 channels, a 3×3
+contour head, a 32-channel pool, 5-frame note, onset and offset heads; about 5,700 parameters)
+costs about twice the drum model per frame, so it stays usable in the page (Song Deck runs
+models in WebAssembly on one thread). `--layout` takes another as JSON, and the binary reads any
+layout of the same graph. `npm run eval:datasets -- --transcriber model=<plugin folder>` in Song
+Deck compares a model with Song Deck's own transcription on its datasets (a model becomes a Song
+Deck plugin with a manifest naming the GGUF and its SHA-256; see Song Deck's `docs/PLUGINS.md`).
+
 ## On Song Deck's drum export
 
 For a directory written by `npm run dataset:render` (e.g. `sd-drums-v1`: 400 songs of about
@@ -275,7 +317,7 @@ Steps, in order (`--steps` picks some; with `--run`, the steps named run again e
 | `train`    | `python3 -m training.train_drums` into `runs/<id>/<file_stem>-<version>.gguf`. Skipped when the data, the `train`/`model` settings and the BackTrack commit are the same as the last finished run (`skip_if_unchanged`; `--force` trains anyway). On a resumed run, `--resume` continues the checkpoint only if every argument is the same. |
 | `evaluate` | `python3 -m training.evaluate --binary` on the separated test split and on the performed test windows (`eval-separated.json`, `eval-performed.json`), the same for `runs/best` (`eval-best-*.json`), and Song Deck's `npm run eval:datasets -- --dataset songdeck --input separated --tasks transcribe --transcriber internal,backtrack-surveil=<url>` (`eval-songdeck.json`) with this run's model served by `backtrack-surveil serve --models-dir runs/<id>/serve-models` on a free port. No performed take passing the thresholds in the test split is not an error. |
 | `parity`   | `python3 -m training.parity --binary ... --model <this run's model>`.                                                           |
-| `report`   | `report.md` and `report.json`; copies the model to `runs/best/` when it beats the previous best (re-scored on today's test split) and parity passed. `weights/` is never written. |
+| `report`   | `report.md` and `report.json`; the model as a Song Deck model plugin in `runs/<id>/songdeck-plugin/<file_stem>-trained/` (manifest with its SHA-256, the test score as its reliability; copied to `runs/best/` with the model);  copies the model to `runs/best/` when it beats the previous best (re-scored on today's test split) and parity passed. `weights/` is never written. |
 | `rejudge`  | Only after a promotion (`perform.rejudge_after_promotion`): Song Deck's `dataset:perform --rejudge --judge backtrack-surveil=<url>` with the new best model served, re-scoring the takes' windows without ACE-Step. |
 
 Each step's output goes to the console and `runs/<id>/<step>.log`; `runs/<id>/state.json` records
@@ -297,6 +339,7 @@ an unknown key is an error. Relative paths are relative to the BackTrack checkou
 | `dataset` | `~/backtrack-training/sd-drums` | the dataset directory (Song Deck's layout); the feature cache goes in its `.cache` |
 | `runs_dir` | `~/backtrack-training/runs` | one folder per run, `best/`, the lock and `scheduled.log` |
 | `low_priority` | `true` | run the steps at low CPU priority (nice 10 / below normal), so the computer stays usable |
+| `model.kind` | `drums` | what to train: `drums`, `bass` or `melody` (melody and vocal stems). Bass and melody train with `train_pitched` (performed audio: ACE-Step takes judged for that part by Song Deck's `dataset:perform --parts`, the judge being the best model of the kind once it beats Song Deck's built-in transcription, run in-process with `--judge model=<file>`), are scored by note F and compared with Song Deck by running the model in Song Deck's harness (`--transcriber model=<file>`; needs a Song Deck with model plugins). Give each kind its own `dataset` and `runs_dir`, and set `render.only_stems` (`bass`; `melody,vocals`) and `render.keep_separated` (`["bass"]`; `["vocals", "other"]`) to match |
 | `model.name`, `.version`, `.file_stem` | `Surveil drums`, `0.1.0`, `surveil-drums` | `general.name`, `general.version`, and the file name `<file_stem>-<version>.gguf` (its stem is the model id) |
 | `render.songs` | `400` | songs in the dataset; raise it to add songs |
 | `render.grow_per_run`, `.max_songs` | `0`, `0` | add this many songs on every run (nightly growth), up to `max_songs` (0: no cap) |

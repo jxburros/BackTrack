@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(backtrack
-    VERSION 0.3.3
+    VERSION 0.4.0
     DESCRIPTION "BackTrack - stem separator (Explode) and MIDI transcriber (Surveil)"
     LANGUAGES C CXX
 )
@@ -32,6 +32,15 @@ set(GGML_HIP    ${BACKTRACK_HIP}    CACHE BOOL "" FORCE)
 set(GGML_BLAS   ${BACKTRACK_BLAS}   CACHE BOOL "" FORCE)
 set(GGML_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
 set(GGML_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+if (EMSCRIPTEN)
+    # wasm/: one module file next to its JS, no pthreads (see wasm/README.md).
+    set(GGML_WASM_SINGLE_FILE OFF CACHE BOOL "" FORCE)
+    set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
+    set(BACKTRACK_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    # The pipeline reports bad input and cancellation with exceptions.
+    add_compile_options(-fwasm-exceptions)
+    add_link_options(-fwasm-exceptions)
+endif()
 
 # ---------------------------------------------------------------------------
 # Vendored ggml, pinned in packaging/vendor/ggml.conf. Resolution order:
@@ -78,19 +87,7 @@ if (MSVC)
     add_compile_options(/utf-8 /bigobj)
 endif()
 
-# ---------------------------------------------------------------------------
-# third_party: cpp-httplib (compiled once), nlohmann/json and dr_libs
-# (header-only).
-# ---------------------------------------------------------------------------
-add_library(backtrack-httplib STATIC third_party/cpp-httplib/httplib.cpp)
-target_include_directories(backtrack-httplib PUBLIC third_party/cpp-httplib)
-find_package(Threads REQUIRED)
-target_link_libraries(backtrack-httplib PUBLIC Threads::Threads)
-if (WIN32)
-    target_link_libraries(backtrack-httplib PUBLIC ws2_32 crypt32)
-endif()
-
-add_library(backtrack-json INTERFACE)
+add_library(backtrack-json INTERFACE)  # nlohmann/json (header-only)
 target_include_directories(backtrack-json INTERFACE third_party)
 
 # ---------------------------------------------------------------------------
@@ -108,6 +105,40 @@ add_library(backtrack-core STATIC
 target_include_directories(backtrack-core PUBLIC core/include PRIVATE third_party/dr_libs)
 target_compile_definitions(backtrack-core PUBLIC BACKTRACK_VERSION="${PROJECT_VERSION}")
 target_link_libraries(backtrack-core PUBLIC ggml)
+
+if (EMSCRIPTEN)
+    # The WebAssembly build: core/ and Surveil's pipeline, no server or CLI.
+    add_executable(backtrack-surveil-wasm
+        wasm/surveil_wasm.cpp
+        apps/surveil/model.cpp
+        apps/surveil/notes.cpp
+        apps/surveil/surveil.cpp
+    )
+    target_include_directories(backtrack-surveil-wasm PRIVATE apps/surveil)
+    target_link_libraries(backtrack-surveil-wasm PRIVATE backtrack-core backtrack-json)
+    set_target_properties(backtrack-surveil-wasm PROPERTIES OUTPUT_NAME surveil-core SUFFIX ".mjs")
+    target_link_options(backtrack-surveil-wasm PRIVATE
+        -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createSurveilCore
+        -sENVIRONMENT=web,worker,node -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=33554432
+        -sMAXIMUM_MEMORY=2147483648 -sSTACK_SIZE=1048576 -sFILESYSTEM=0
+        -sEXPORTED_FUNCTIONS=_malloc,_free
+        -sEXPORTED_RUNTIME_METHODS=UTF8ToString,stringToUTF8,lengthBytesUTF8,HEAPU8,HEAPF32)
+    configure_file(wasm/surveil.mjs ${CMAKE_BINARY_DIR}/surveil.mjs COPYONLY)
+    return()
+endif()
+
+# ---------------------------------------------------------------------------
+# third_party: cpp-httplib (compiled once); nlohmann/json and dr_libs are
+# header-only.
+# ---------------------------------------------------------------------------
+add_library(backtrack-httplib STATIC third_party/cpp-httplib/httplib.cpp)
+target_include_directories(backtrack-httplib PUBLIC third_party/cpp-httplib)
+find_package(Threads REQUIRED)
+target_link_libraries(backtrack-httplib PUBLIC Threads::Threads)
+if (WIN32)
+    target_link_libraries(backtrack-httplib PUBLIC ws2_32 crypt32)
+endif()
+
 
 # ---------------------------------------------------------------------------
 # server/: the shared HTTP layer, and ui/: the page it serves (HTML, CSS, JS
