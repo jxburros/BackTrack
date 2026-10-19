@@ -1391,6 +1391,11 @@ def preflight(p: Pipeline, steps: list[str]) -> None:
 
 
 def main(argv=None) -> int:
+    # Child output (e.g. Song Deck's "->" arrows) is echoed to the console; a Windows cp1252 console can't encode
+    # all of it, so never let a display character abort a run.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:1] == ["schedule"]:
         return schedule_main(argv[1:])
