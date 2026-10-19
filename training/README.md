@@ -46,7 +46,8 @@ build/backtrack-surveil song.wav --stem drums --models-dir models -o drums.mid
 | `synth.py`         | Synthetic drum songs written as a Song Deck dataset (also the readers' test data)                                |
 | `features.py`      | HCQT features cached on disk (float16, memory-mapped), onset targets, crops                                      |
 | `train_drums.py`   | Training loop and export                                                                                         |
-| `evaluate.py`      | Onset F-measure per class, through PyTorch or through the binary                                                 |
+| `train_pitched.py` | The same for pitched models (bass, melody, vocals): note, onset, offset and contour targets from the stems' notes and bends |
+| `evaluate.py`      | Onset F-measure per class (drums) or note F (pitched), through PyTorch or through the binary; `pick_pitched` ports the binary's pitched note picking |
 | `check_performed.py` | Checks training on performed (ACE-Step) audio on a tiny synthetic set: shifted labels, windows, masking, resume (CI) |
 | `pipeline.py`      | The whole run in one command: render, perform, train, evaluate, parity, report; resumable and schedulable ([below](#the-pipeline-one-command)) |
 | `midi.py`          | Standard MIDI File reading (through the tempo map) and a minimal writer                                          |
@@ -233,6 +234,43 @@ script) picks the hits.
 `--min-offset-strength` as training); the printed header says so and the JSON gains
 `"performed": {"accepted_windows_only": true, "items", "accepted_minutes", "minutes",
 "min_agreement", "min_offset_strength"}`. Every report carries `"audio"` (the inputs scored).
+
+## Pitched models: bass, melody and vocals (T5)
+
+```bash
+npm run dataset:render -- --out ~/data/sd-bass --songs 400 --seconds 60 --only-stems bass --separate   # in Song Deck
+python3 -m training.train_pitched --data ~/data/sd-bass --stem bass --audio stem,separated \
+    --out models/surveil-bass-0.1.0.gguf --epochs 30 --patience 6
+python3 -m training.evaluate --model models/surveil-bass-0.1.0.gguf --data ~/data/sd-bass \
+    --audio separated --split test --binary build/backtrack-surveil
+```
+
+`--stem` names the stem kinds in Song Deck's manifest to learn (`bass`, `vocals`, `melody`,
+`piano`, `guitar`, `other`), comma-separated: `--stem melody,vocals` for one melody model. The
+first is the model's source for note picking, so bass, melody and vocals are picked one note at a
+time, as the binary does for them. `--audio separated` reads the separator's stem that holds the
+part (`bass` → bass, `vocals` → vocals, the others → other; `datasets.SEPARATED_STEM`). The model
+writes `audio.stems` = the `--stem` list, so `backtrack-surveil` (and Song Deck's model plugins)
+use it for those stems.
+
+The targets are the pitched graph's four heads: **note** (1 on the frames a note sounds),
+**onset** and **offset** (a Gaussian of 0.6 frames around each start and end), and **contour**
+(the pitch curve at 3 bins per semitone, a Gaussian of 1 bin around the note's pitch plus its
+bend at that frame, so models learn the bends Song Deck's renders carry). The loss is a weighted
+BCE on each (`--pos-weight` for the positives, `--offset-weight` for the offset head). The valid
+score is the note F (onset within ±50 ms at the same pitch, notes picked by
+`evaluate.pick_pitched`, which the parity script checks exact against the binary); the best
+epoch is exported. The rest works as `train_drums` does: the feature cache, `--resume`,
+`--patience`, `--minutes`, `--device`, `<out>.history.json` and `<out>.summary.json`, and the
+`train_pitched: OK|FAILED|INTERRUPTED` last line.
+
+The default layout (`PITCHED_LAYOUT`: a 5×5 and a 3×3 trunk conv to 16 and 8 channels, a 3×3
+contour head, a 32-channel pool, 5-frame note, onset and offset heads; about 5,700 parameters)
+costs about twice the drum model per frame, so it stays usable in the page (Song Deck runs
+models in WebAssembly on one thread). `--layout` takes another as JSON, and the binary reads any
+layout of the same graph. `npm run eval:datasets -- --transcriber model=<plugin folder>` in Song
+Deck compares a model with Song Deck's own transcription on its datasets (a model becomes a Song
+Deck plugin with a manifest naming the GGUF and its SHA-256; see Song Deck's `docs/PLUGINS.md`).
 
 ## On Song Deck's drum export
 

@@ -96,7 +96,7 @@ third_party/     pinned ggml, cpp-httplib, single-header audio decoders
 | M1  | Song Deck uses JX Runtime for LLMs: preset, discovery, pairing (done 2026-10-18)                                                | Song Deck, JX Runtime         | none       | done       |
 | M2  | Audio-apps repository set up: shared core, server, page; transcriber running a placeholder model end to end (done, BackTrack 0.0.1) | Audio apps (Onyx as template) | none       | done       |
 | M3  | Training pipeline, including Song Deck's training-data export; first drum model; Transcriber 0.1 binaries; Song Deck preset (built 2026-10-19; release v0.1.0 to cut) | Audio apps, Song Deck | M2 | built |
-| M4  | Transcriber in WebAssembly inside Song Deck (`"model"` plugin kind); bass and melody models                                     | Song Deck, audio apps         | M3         | 3–5 weeks  |
+| M4  | Transcriber in WebAssembly inside Song Deck (`"model"` plugin kind); bass and melody models — **WebAssembly and Song Deck side built; pitched training built, models to train** | Song Deck, audio apps         | M3         | 3–5 weeks  |
 | M5  | Separator 0.1: first model, binaries, Song Deck preset                                                                          | Audio apps, Song Deck         | M2         | 8–12 weeks |
 | M6  | JX Runtime runs the audio apps; Song Deck desktop runs JX Runtime in managed mode; JX Runtime becomes the default local runtime | JX Runtime, Song Deck         | M1, M3     | 3–4 weeks  |
 

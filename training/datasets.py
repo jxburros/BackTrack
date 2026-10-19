@@ -60,6 +60,8 @@ class Item:
     # for all of it. Training masks the loss outside them; evaluation scores
     # only inside them.
     regions: list | None = None
+    # Pitched items (read_songdeck_notes): [(start, end, pitch, bend)], bend [(position 0..1, cents)] or None.
+    notes: list = field(default_factory=list)
 
 
 def hits_from_notes(notes, mapping=GM_DRUMS) -> tuple[list, int]:
@@ -172,6 +174,65 @@ def read_songdeck(root, audio: str = "stem", min_agreement: float = MIN_AGREEMEN
             raise ValueError(f"unknown audio choice {audio!r} (stem, separated, mix or performed)")
         items.append(Item(f"{song['id']}:{audio}", split, files, hits, source, float(song.get("duration", 0))))
     return items
+
+
+# Which of the separator's four stems holds each pitched stem kind (Song Deck's built-in separator
+# writes drums, bass, vocals and other; an instrument playing the melody lands in "other").
+SEPARATED_STEM = {"bass": "bass", "vocals": "vocals", "melody": "other", "piano": "other", "guitar": "other",
+                  "other": "other"}
+
+
+def read_songdeck_notes(root, stems=("bass",), audio: str = "stem") -> list[Item]:
+    """Pitched items from a Song Deck dataset: the stems of the given kinds
+    (`stem` field: bass, vocals, melody, piano, guitar, other) with their
+    notes and bends. audio: "stem" (those stems summed), "separated" (the
+    separator's stem that holds them, SEPARATED_STEM) or "mix"."""
+    root = Path(root)
+    man = json.loads((root / "manifest.json").read_text())
+    if man.get("format") != "songdeck-dataset":
+        raise ValueError(f"{root}/manifest.json: format is not songdeck-dataset")
+    if int(man.get("version", 0)) != 1:
+        raise ValueError(f"{root}/manifest.json: version {man.get('version')} is not supported (expected 1)")
+    source = f"Song Deck dataset {root.name} (Song Deck {man.get('songdeck_version', '?')}, {man.get('created', '?')}): {man.get('licence', '')}"
+    items = []
+    for song in man["songs"]:
+        mine = [s for s in song.get("stems", []) if s.get("stem") in stems and not s.get("drums")]
+        if not mine:
+            continue
+        raw = []
+        for s in mine:
+            raw += s["notes"] if s.get("notes") is not None else read_notes(root / s["midi"]) if s.get("midi") else []
+        notes = sorted((float(n["start"]), float(n["end"]), int(round(n["pitch"])),
+                        [tuple(map(float, b)) for b in n["bend"]] if n.get("bend") else None)
+                       for n in raw if float(n["end"]) > float(n["start"]))
+        split = song.get("split", "train")
+        split = "valid" if split == "validation" else split
+        if audio == "stem":
+            files = [root / s["audio"] for s in mine]
+        elif audio == "separated":
+            seps = (song.get("separated") or {}).get("stems", {})
+            names = sorted({SEPARATED_STEM.get(s["stem"], "other") for s in mine})
+            if not all(seps.get(n) for n in names):
+                continue
+            files = [root / seps[n] for n in names]
+        elif audio == "mix":
+            files = [root / song["mix"]]
+        else:
+            raise ValueError(f"unknown audio choice {audio!r} for pitched stems (stem, separated or mix)")
+        items.append(Item(f"{song['id']}:{audio}", split, files, [], source, float(song.get("duration", 0)), None, notes))
+    return items
+
+
+def summary_notes(items: list[Item]) -> str:
+    out = []
+    for sp in SPLITS:
+        it = [i for i in items if i.split == sp]
+        if it:
+            pitches = [n[2] for i in it for n in i.notes]
+            bent = sum(1 for i in it for n in i.notes if n[3])
+            out.append(f"{sp}: {len(it)} items, {sum(i.duration for i in it) / 60:.1f} min, {len(pitches)} notes"
+                       + (f" (MIDI {min(pitches)}-{max(pitches)}, {bent} with bends)" if pitches else ""))
+    return "\n".join(out)
 
 
 def _performed_items(root, man, song, hits, split, min_agreement, min_offset_strength, stats):

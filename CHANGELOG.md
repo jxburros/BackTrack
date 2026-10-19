@@ -14,6 +14,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   thread, and reports progress and cancels between chunks. Releases attach it as
   `backtrack-surveil-wasm-<tag>.zip`. `scripts/install-emsdk.sh` installs the pinned Emscripten.
 - `GgufFile::open_memory`: models load from bytes as well as files.
+- **Pitched training** (milestone T5, `training/train_pitched.py`): bass, melody and vocal models from
+  Song Deck's rendered stems (`--stem bass`, `--stem melody,vocals`), with note, onset, offset and
+  contour targets (bends included), the valid note F as the binary picks notes, and the drum
+  trainer's cache, resume, patience and records. `evaluate.py` scores pitched models (note F,
+  through PyTorch or the binary) and `parity.py` checks the pitched note picking's Python port
+  exact against the binary. CI trains, checks and scores a toy bass model.
 
 ### Changed
 
