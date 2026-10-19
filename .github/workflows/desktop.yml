@@ -1,0 +1,140 @@
+# BackTrack desktop: installers for BackTrack Surveil and the BackTrack hub
+# (desktop/, on Tauri), per platform:
+#
+#   BackTrack-Surveil-<version>-<platformKey>-setup.exe   Windows (NSIS, per-user, no admin)
+#   BackTrack-Surveil-<version>-<platformKey>.dmg         macOS (ad-hoc signed, not notarized)
+#   BackTrack-Surveil-<version>-<platformKey>.deb         Debian, Ubuntu
+#   BackTrack-Surveil-<version>-<platformKey>.AppImage    other Linux
+#   BackTrack-<version>-<platformKey>...                  the hub, the same four kinds
+#
+# Each Surveil installer carries the same backtrack-surveil the release
+# archives do (built here with the release flags) and the models in weights/.
+# BackTrack Explode gets its installer once backtrack-explode exists.
+#
+# Runs on changes to the desktop shell or the page, and from release.yml,
+# which attaches the installers to the GitHub Release.
+name: desktop
+
+on:
+  push:
+    branches: ["**"] # not tags: release.yml builds the installers for those
+    paths:
+      - "desktop/**"
+      - "ui/**"
+      - ".github/workflows/desktop.yml"
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "ui/**"
+      - ".github/workflows/desktop.yml"
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit, branch or tag to build"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ inputs.ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_call' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  installers:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - asset-key: linux-x64
+            runs-on: ubuntu-22.04
+            bundles: deb,appimage
+            cli: build/backtrack-surveil
+          - asset-key: darwin-arm64
+            runs-on: macos-latest
+            bundles: dmg
+            cli: build/backtrack-surveil
+          - asset-key: darwin-x64
+            runs-on: macos-15-intel
+            bundles: dmg
+            cli: build/backtrack-surveil
+          - asset-key: win32-x64
+            runs-on: windows-latest
+            bundles: nsis
+            cli: build/Release/backtrack-surveil.exe
+    name: installers (${{ matrix.asset-key }})
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Linux packages for the webview
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf libfuse2 file
+
+      # The same backtrack-surveil the release archives carry (release.yml).
+      - name: Install ggml
+        run: npm ci
+
+      - name: Configure backtrack-surveil (Release, static)
+        if: runner.os != 'Windows'
+        run: |
+          cpu_flags=()
+          case "${{ matrix.asset-key }}" in
+            linux-x64|darwin-x64) cpu_flags=(-DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON) ;;
+          esac
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DBACKTRACK_BUILD_TESTS=OFF \
+            -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DGGML_CCACHE=OFF "${cpu_flags[@]}"
+
+      - name: Configure backtrack-surveil (Release, static, MSVC)
+        if: runner.os == 'Windows'
+        run: cmake -B build -A x64 -DBUILD_SHARED_LIBS=OFF -DBACKTRACK_BUILD_TESTS=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DGGML_CCACHE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+
+      - name: Build backtrack-surveil
+        run: |
+          cmake --build build --target backtrack-surveil --config Release -j 4
+          "${{ matrix.cli }}" --version
+
+      - name: Install the Tauri CLI
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build BackTrack Surveil
+        working-directory: desktop
+        run: |
+          node prepare.mjs "../${{ matrix.cli }}"
+          npx tauri build --config src-tauri/tauri.surveil.conf.json --bundles ${{ matrix.bundles }}
+          node collect.mjs BackTrack-Surveil "${{ matrix.asset-key }}" ../dist
+
+      - name: Build BackTrack (the hub)
+        working-directory: desktop
+        run: |
+          node prepare.mjs
+          npx tauri build --bundles ${{ matrix.bundles }}
+          node collect.mjs BackTrack "${{ matrix.asset-key }}" ../dist
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.asset-key }}
+          path: dist/*
+          if-no-files-found: error

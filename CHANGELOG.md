@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Desktop apps** (`desktop/`, on Tauri 2): *BackTrack Surveil* in its own window, with the drum
+  model built in, and *BackTrack*, the hub from the design spec, which finds the installed apps
+  and shows each in a tab; a track dropped on the hub opens in the app you pick. Installers for
+  Windows (per-user NSIS), macOS (`.dmg`, ad-hoc signed) and Linux (`.deb`, `.AppImage`), built
+  by `.github/workflows/desktop.yml` and attached to releases. Downloads from the pages open a
+  save dialog. Not yet code-signed or notarized. `docs/desktop.md`.
+- `backtrack-surveil serve --watch-stdin`: stop when standard input closes, so a server started
+  by a desktop app never outlives it.
+
+### Fixed
+
+- **Double-clicking `backtrack-surveil.exe` on Windows** no longer flashes a window and exits: it
+  starts the server and opens the page in the browser. The window stays open while the page is
+  in use, and stays open on an error until Enter is pressed. From a terminal nothing changes.
+
 ## [0.1.0] - 2026-10-19
 
 Milestone M3: the training pipeline, Surveil's first trained model (drums), release binaries and

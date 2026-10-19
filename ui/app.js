@@ -117,6 +117,7 @@
   function mountSurveil(view) {
     let file = null, result = null, busy = null, startedAt = 0, peaks = null, selected = -1;
     let baseName = 'transcription', camTimer = 0, poll = 0;
+    let hub = null;  // the BackTrack desktop hub holding this page in a frame, once it says so
 
     // CAM line: real date, elapsed time of the current (or last) run as HH:MM:SS:FF at 25 fps.
     function cam(elapsedMs) {
@@ -479,6 +480,7 @@
 
     // ---- downloads ----
     function download(name, bytes, type) {
+      if (hub) { hub.source.postMessage({ type: 'backtrack-download', name, mime: type, bytes }, hub.origin); return; }
       const url = URL.createObjectURL(new Blob([bytes], { type }));
       const a = document.createElement('a');
       a.href = url; a.download = name;
@@ -516,6 +518,17 @@
     window.addEventListener('resize', redraw);
     window.addEventListener('bt-theme', redraw);
     document.fonts && document.fonts.ready.then(() => drawRoll());
+
+    // ---- a track handed over by the BackTrack desktop hub, which holds this page in a frame ----
+    if (window.parent !== window) {
+      const HUB_ORIGINS = ['tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost'];
+      window.addEventListener('message', (e) => {
+        if (e.source !== window.parent || !HUB_ORIGINS.includes(e.origin) || !e.data) return;
+        if (e.data.type === 'backtrack-hub') hub = { source: e.source, origin: e.origin };  // downloads go through the hub
+        if (e.data.type === 'backtrack-file') pickFile(e.data.file);
+      });
+      window.parent.postMessage({ type: 'backtrack-ready', app }, '*');
+    }
   }
 
   // ---- start ----

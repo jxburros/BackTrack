@@ -1,11 +1,13 @@
 # BackTrack release: build backtrack-surveil for each platform, attach the
 # archives, the model files in weights/ and checksums.txt to the GitHub
-# Release for the tag. Onyx Engine's convention (its docs/building.md,
-# "Release binaries"):
+# Release for the tag, with the desktop installers (desktop.yml) beside them.
+# Onyx Engine's convention (its docs/building.md, "Release binaries"):
 #
 #   backtrack-surveil-<tag>-<platformKey>.tar.gz   (.zip on Windows)
 #   surveil-drums-<version>.gguf                    (models, separate downloads)
 #   checksums.txt                                   ("<sha256>  <file>" per asset)
+#   BackTrack-Surveil-<version>-<platformKey>-setup.exe, .dmg, .deb, .AppImage
+#   BackTrack-<version>-<platformKey>...            (the desktop apps; desktop.yml)
 #
 # <platformKey> is Node's `${process.platform}-${process.arch}`, which is how
 # Song Deck's binary recipe (and later JX Runtime) picks the asset. Each
@@ -188,13 +190,21 @@ jobs:
           path: ${{ env.ARCHIVE }}
           if-no-files-found: error
 
-  # All-or-nothing on purpose, as in Onyx Engine: Song Deck pins one tag and
-  # derives each asset name from the platform, so a partial release would
-  # install on some machines and 404 on others. Re-run with workflow_dispatch
-  # against the same tag after a fix; the release is updated in place.
+  desktop:
+    uses: ./.github/workflows/desktop.yml
+    with:
+      ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+  # All-or-nothing on purpose for the archives, as in Onyx Engine: Song Deck
+  # pins one tag and derives each asset name from the platform, so a partial
+  # release would install on some machines and 404 on others. The desktop
+  # installers are not part of that: if they fail, the archives still go out
+  # and the job says so. Re-run with workflow_dispatch against the same tag
+  # after a fix; the release is updated in place.
   release:
     name: publish release
-    needs: build
+    needs: [build, desktop]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -225,13 +235,25 @@ jobs:
           pattern: backtrack-surveil-*
           merge-multiple: true
 
+      - name: Download the desktop installers
+        if: needs.desktop.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: desktop-*
+          merge-multiple: true
+
+      - name: Note missing desktop installers
+        if: needs.desktop.result != 'success'
+        run: echo "::warning::desktop installers failed to build; releasing the archives without them"
+
       - name: Add the models
         run: cp weights/*.gguf dist/
 
       - name: Checksums
         run: |
           cd dist
-          sha256sum backtrack-surveil-* *.gguf > checksums.txt
+          sha256sum backtrack-surveil-* *.gguf $(ls BackTrack-* 2>/dev/null) > checksums.txt
           cat checksums.txt
 
       - name: Create/update GitHub Release
@@ -241,5 +263,6 @@ jobs:
           generate_release_notes: true
           files: |
             dist/backtrack-surveil-*
+            dist/BackTrack-*
             dist/*.gguf
             dist/checksums.txt

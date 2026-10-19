@@ -21,6 +21,19 @@ with weights in GGUF; no Python at run time.
 
 ## Quick start
 
+**Desktop apps:** from a [release](https://github.com/jxburros/BackTrack/releases), install
+*BackTrack Surveil* (`-setup.exe` on Windows, `.dmg` on macOS, `.deb` or `.AppImage` on Linux)
+and open it like any other app. *BackTrack*, the hub, shows every BackTrack app you have
+installed in one window. See [the desktop apps](docs/desktop.md).
+
+**Command line:** unpack the archive for your platform and run `backtrack-surveil serve`, then
+open http://127.0.0.1:8826. On Windows you can also double-click `backtrack-surveil.exe`: it
+starts the server and opens the page; keep its window open while you use it. To use a
+downloaded model such as `surveil-drums-0.1.0.gguf`, put it in a `models` folder next to the
+binary.
+
+From source:
+
 ```bash
 npm ci                                        # fetch the pinned ggml
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
@@ -79,6 +92,8 @@ own front-end settings and licence record ([docs/gguf-metadata.md](docs/gguf-met
 ## Documentation
 
 - [The page](docs/page.md): the Surveil screen, light mode, keyboard, the design rules
+- [The desktop apps](docs/desktop.md): installing BackTrack Surveil and the BackTrack hub, and
+  how `desktop/` builds them
 - [Building](docs/building.md): ggml vendoring, GPU backends, layout
 - [HTTP API](docs/http-api.md): endpoints, and one job from start to finish
 - [Front end](docs/front-end.md): how Surveil hears (harmonic CQT), and
