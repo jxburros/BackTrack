@@ -45,7 +45,7 @@ TOLERANCE = 0.05
 def pick_drums(onset: np.ndarray, frame_rate: float, threshold: float = 0.5) -> list[tuple[float, int, float]]:
     """onset (frames, classes) likelihoods -> [(seconds, class, confidence)]."""
     T, N = onset.shape
-    min_gap = max(1, int(math.floor(0.035 * frame_rate + 0.5)))
+    min_gap = max(1, math.floor(0.035 * frame_rate + 0.5))
     prev = np.vstack([np.zeros((1, N), onset.dtype), onset[:-1]])
     nxt = np.vstack([onset[1:], np.zeros((1, N), onset.dtype)])
     peak = (onset >= threshold) & (onset >= prev) & (onset > nxt)
@@ -103,7 +103,7 @@ def pick_pitched(acts: dict, frame_rate: float, source: str, pitch_min: int = 21
     lo, hi = PITCH_RANGE.get(source, (21, 108))
     w = ((np.arange(N) + pitch_min >= lo) & (np.arange(N) + pitch_min <= hi)).astype(np.float32)
     frame, on = note * w, onset * w
-    mn = max(1, int(math.floor(min_note_seconds * frame_rate + 0.5)))
+    mn = max(1, math.floor(min_note_seconds * frame_rate + 0.5))
     out = []
     if T == 0:
         return out

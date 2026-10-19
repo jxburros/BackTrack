@@ -44,7 +44,7 @@ from .train_drums import CPU_BATCH, GPU_BATCH, _atomic, prefetch, to_device
 # The default pitched layout: a 5x5 then a 3x3 trunk conv (16 and 8 channels), a 3x3 contour
 # head, a 32-channel pool and 5-frame note, onset and offset heads. About 5k parameters,
 # receptive radius 5 frames; about twice the drum model's cost per frame.
-PITCHED_LAYOUT = dict(trunk=[(5, 5, 16), (3, 3, 8)], contour=(3, 3), pool=32, note=5, onset=5, offset=5)
+PITCHED_LAYOUT = {"trunk": [(5, 5, 16), (3, 3, 8)], "contour": (3, 3), "pool": 32, "note": 5, "onset": 5, "offset": 5}
 PITCH_MIN = 21
 SIGMA_FRAMES, SIGMA_BINS = 0.6, 1.0
 
@@ -77,11 +77,11 @@ def note_targets(notes, start: int, length: int, frame_rate: float, n_out: int, 
         if not 0 <= i < n_out:
             continue
         fa, fb = a * frame_rate - start, b * frame_rate - start
-        k0, k1 = max(0, int(round(fa))), min(length, max(int(round(fa)) + 1, int(round(fb))))
+        k0, k1 = max(0, round(fa)), min(length, max(round(fa) + 1, round(fb)))
         if k1 > k0:
             note[k0:k1, i] = 1
         for y, f in ((onset, fa), (offset, fb)):
-            kf = int(math.floor(f))
+            kf = math.floor(f)
             for k in range(kf - 2, kf + 4):
                 if 0 <= k < length:
                     v = math.exp(-0.5 * ((k - f) / SIGMA_FRAMES) ** 2)
@@ -91,7 +91,7 @@ def note_targets(notes, start: int, length: int, frame_rate: float, n_out: int, 
         for k in range(k0, k1):
             pos = min(1.0, max(0.0, ((k + start) / frame_rate - a) / max(1e-6, b - a)))
             c = centre + _bend_at(bend, pos) * bps / 100
-            for j in range(int(math.floor(c)) - 3, int(math.floor(c)) + 5):
+            for j in range(math.floor(c) - 3, math.floor(c) + 5):
                 if 0 <= j < contour.shape[1]:
                     v = math.exp(-0.5 * ((j - c) / SIGMA_BINS) ** 2)
                     if v >= 0.05:

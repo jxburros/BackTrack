@@ -932,7 +932,7 @@ class Pipeline:
             # A dataset rendered without --separate (or with these stems pruned) has no separated
             # audio: the clean stems are scored instead.
             want = set(KINDS[self.kind]["separated"])
-            if not self.dry and man and not any(want & set(((sg.get("separated") or {}).get("stems") or {}))
+            if not self.dry and man and not any(want & set((sg.get("separated") or {}).get("stems") or {})
                                                 for sg in man["songs"] if sg.get("split") == ec["split"]):
                 self.r.say(f"the dataset has no separated {'/'.join(sorted(want))} stems: scoring the clean stems instead")
                 inputs = ["stem"]
