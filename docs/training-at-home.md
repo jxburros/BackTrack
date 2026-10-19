@@ -116,9 +116,10 @@ minutes per epoch` (scaled by the hours of audio) for `train`.
 ## 1. Install the prerequisites
 
 You need Git, Node.js 20.19 or newer (with npm), Python 3.10–3.12, CMake 3.16+ with a C++17
-compiler, and for ACE-Step 1.5, [uv](https://docs.astral.sh/uv/). Python 3.13 to 3.15 work for
-training as long as PyTorch has a build for them (check pytorch.org; a newer Python can lag behind);
-3.11 or 3.12 is the safe choice.
+compiler, and for ACE-Step 1.5, [uv](https://docs.astral.sh/uv/). Python 3.13 works for training
+but other tools may lag behind; 3.11 or 3.12 is the safe choice. A newer Python (3.14 or later) has no
+PyTorch release yet: in the hub's TRAIN view, **Install** next to *Python and PyTorch* sets up Python
+3.12 with PyTorch beside it, and uv too, with no terminal.
 
 ### Windows
 

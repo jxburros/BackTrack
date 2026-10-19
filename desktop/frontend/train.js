@@ -133,9 +133,10 @@
     $('t-start').hidden = $('t-resume').hidden = p.running;
     $('t-stop').hidden = !p.running;
     $('t-check').disabled = p.running;
-    const fixing = p.kind === 'songdeck-install' || p.kind === 'soundbank';
+    const fixing = ['songdeck-install', 'soundbank', 'uv-install', 'python-install'].includes(p.kind);
+    const doing = { 'uv-install': 'Installing uv…', 'python-install': 'Installing Python and PyTorch: a few minutes, keep BackTrack open…' }[p.kind] || 'Setting up Song Deck…';
     if (p.running) {
-      $('t-status').textContent = fixing ? 'Setting up Song Deck…' : 'Training: run ' + (p.run || '') + '. Keep BackTrack open.';
+      $('t-status').textContent = fixing ? doing : 'Training: run ' + (p.run || '') + '. Keep BackTrack open.';
     } else if (wasRunning && p.exit !== null) {
       $('t-status').textContent = p.exit === 0
         ? (fixing ? 'Done. Check setup again.' : 'Run finished.')

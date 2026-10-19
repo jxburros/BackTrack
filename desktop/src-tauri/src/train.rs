@@ -51,10 +51,14 @@ impl Default for Settings {
     }
 }
 
+/// A command built when its turn comes, so it can use what the step before it installed.
+type Step = Box<dyn FnOnce() -> Result<Command, String> + Send>;
+
 #[derive(Default)]
 struct Job {
     child: Option<Child>,
-    kind: String, // run | resume | songdeck-install | soundbank
+    queue: Vec<Step>, // what runs next, one after another, while each one succeeds
+    kind: String, // run | resume | songdeck-install | soundbank | uv-install | python-install
     lines: Vec<String>,
     dropped: usize, // lines dropped from the front, so offsets stay stable
     exit: Option<i32>,
@@ -452,13 +456,13 @@ fn python_candidates(s: &Settings) -> Vec<Cand> {
         let launcher = which("py");
         if cfg!(windows) {
             if let Some(py) = launcher {
-                for ver in ["3.15", "3.14", "3.13", "3.12", "3.11", "3.10"] {
+                for ver in ["3.12", "3.11", "3.13", "3.10"] {
                     v.push(Cand { label: format!("py -{ver}"), prog: py.clone(), args: vec![format!("-{ver}")] });
                 }
                 v.push(Cand { label: "py".into(), prog: py, args: vec![] });
             }
         }
-        for name in ["python3.15", "python3.14", "python3.13", "python3.12", "python3.11", "python3.10", "python3", "python"] {
+        for name in ["python3.12", "python3.11", "python3.13", "python3.10", "python3", "python"] {
             if let Some(p) = which(name) {
                 if !v.iter().any(|c| c.prog == p && c.args.is_empty()) {
                     v.push(Cand { label: name.into(), prog: p, args: vec![] });
@@ -491,8 +495,9 @@ fn probe_python(s: &Settings) -> Result<PythonInfo, String> {
         if info.torch.is_some() {
             return Ok(info);
         }
-        // Without PyTorch anywhere, name the newest Python: that's the one to install it in.
-        if best.as_ref().is_none_or(|b| minor(&info.version) > minor(&b.version)) {
+        // Without PyTorch anywhere, name a Python PyTorch has builds for rather than the newest.
+        let ok_ver = |i: &PythonInfo| (10..=13).contains(&minor(&i.version));
+        if best.as_ref().is_none_or(|b| ok_ver(&info) && !ok_ver(b)) {
             best = Some(info);
         }
     }
@@ -552,11 +557,14 @@ pub async fn train_check(app: AppHandle, settings: Settings) -> Vec<Check> {
             let auto = if s.python.trim().is_empty() { " (found automatically)" } else { "" };
             push("Python and PyTorch", state, format!("Python {} with PyTorch {}, {gpu}: {}{auto}", p.version, p.torch.unwrap_or_default(), p.exe), None);
         }
+        Ok(p) if minor(&p.version) > 13 => push("Python and PyTorch", "fail", format!(
+            "the Python here is {} ({}), which PyTorch has no release for yet. Install puts Python 3.12 with PyTorch beside it, for the training only (a few GB).",
+            p.version, p.exe), Some("python-install")),
         Ok(p) => push("Python and PyTorch", "fail", format!(
-            "Python {} at {} can't load PyTorch ({}). Install it in that Python (docs/training-at-home.md, step 2; for a very new Python without a release yet, pytorch.org's pre-release or nightly index), or choose another Python above.",
-            p.version, p.exe, p.error.unwrap_or_default()), None),
+            "Python {} at {} can't load PyTorch ({}). Install puts Python 3.12 with PyTorch beside it, for the training only (a few GB), or choose another Python above.",
+            p.version, p.exe, p.error.unwrap_or_default()), Some("python-install")),
         Err(e) => push("Python and PyTorch", "fail",
-            format!("{e}. Install Python and PyTorch (docs/training-at-home.md), or choose your Python above. BackTrack looks in PATH, the py launcher, conda and ~/backtrack-training/venv."), None),
+            format!("{e}. Install puts Python 3.12 with PyTorch in {}, for the training only (a few GB), or choose your Python above.", expand(&s.data).join("venv").display()), Some("python-install")),
     }
 
     let npm = which(if cfg!(windows) { "npm.cmd" } else { "npm" }).or_else(|| which("npm"));
@@ -627,7 +635,7 @@ pub async fn train_check(app: AppHandle, settings: Settings) -> Vec<Check> {
         } else if s.acestep.trim().is_empty() || !expand(&s.acestep).is_dir() {
             push("ACE-Step", "fail", "no ACE-Step 1.5 folder found in your home, Documents, Downloads or Desktop: choose it above (BackTrack starts it for each run), start `acestep-api` yourself, or untick Use ACE-Step.".into(), None);
         } else if which("uv").is_none() {
-            push("ACE-Step", "fail", "uv not found, which starts ACE-Step: install uv (docs.astral.sh/uv), then restart BackTrack and check again.".into(), None);
+            push("ACE-Step", "fail", "uv not found, which starts ACE-Step: Install gets it from docs.astral.sh/uv.".into(), Some("uv-install"));
         } else {
             push(
                 "ACE-Step",
@@ -646,12 +654,38 @@ pub async fn train_check(app: AppHandle, settings: Settings) -> Vec<Check> {
 
 // ---------------------------------------------------------------------------- jobs
 
-fn spawn(state: &Trainer, kind: &str, mut cmd: Command) -> Result<(), String> {
+fn spawn(state: &Trainer, kind: &str, cmd: Command) -> Result<(), String> {
+    spawn_chain(state, kind, vec![Box::new(move || Ok(cmd))])
+}
+
+fn spawn_chain(state: &Trainer, kind: &str, steps: Vec<Step>) -> Result<(), String> {
     let mut job = state.job.lock().unwrap();
     if let Some(c) = job.child.as_mut() {
         if c.try_wait().ok().flatten().is_none() {
             return Err("something is already running: stop it first".into());
         }
+    }
+    *job = Job {
+        kind: kind.into(),
+        queue: steps,
+        ..Job::default()
+    };
+    if let Err(e) = next_step(&mut job, &state.job) {
+        job.queue.clear();
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// Starts the next queued command, its output going to the job's log.
+fn next_step(job: &mut Job, shared: &Arc<Mutex<Job>>) -> Result<(), String> {
+    if job.queue.is_empty() {
+        return Ok(());
+    }
+    let mut cmd = job.queue.remove(0)()?;
+    if job.kind != "run" && job.kind != "resume" {
+        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+        job.lines.push(format!("> {} {}", cmd.get_program().to_string_lossy(), args.join(" ")));
     }
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(unix)]
@@ -660,11 +694,7 @@ fn spawn(state: &Trainer, kind: &str, mut cmd: Command) -> Result<(), String> {
         cmd.process_group(0); // STOP reaches everything it started
     }
     let mut child = cmd.spawn().map_err(|e| format!("couldn't start: {e}"))?;
-    *job = Job {
-        kind: kind.into(),
-        ..Job::default()
-    };
-    let shared = state.job.clone();
+    let shared = shared.clone();
     for stream in [
         child
             .stdout
@@ -767,7 +797,62 @@ pub async fn train_start(
     spawn(&state, if resume { "resume" } else { "run" }, cmd)
 }
 
-/// A setup fix: Song Deck's `npm install`, or its sound bank.
+/// uv's own installer (what docs.astral.sh/uv gives to copy), run for the user.
+fn uv_install() -> Step {
+    Box::new(|| {
+        let mut c;
+        if cfg!(windows) {
+            c = command("powershell");
+            c.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "irm https://astral.sh/uv/install.ps1 | iex"]);
+        } else {
+            c = command("sh");
+            c.args(["-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"]);
+        }
+        Ok(c)
+    })
+}
+
+/// A Python 3.12 environment with PyTorch for the training, in the data folder's `venv` (the
+/// setup check looks there). uv fetches Python 3.12 itself if the computer has none, and
+/// PyTorch comes in the build that fits: CUDA with an NVIDIA GPU, the default on a Mac, else CPU.
+fn python_install(s: &Settings) -> Vec<Step> {
+    let data = if s.data.trim().is_empty() { home().join("backtrack-training") } else { expand(&s.data) };
+    let venv = data.join("venv");
+    let py = venv_python(&venv);
+    let uv = || which("uv").ok_or("uv isn't installed: its installer didn't finish".to_string());
+    let mut steps: Vec<Step> = Vec::new();
+    {
+        let venv = venv.clone();
+        steps.push(Box::new(move || {
+            if venv.join("pyvenv.cfg").is_file() {
+                let _ = std::fs::remove_dir_all(&venv); // ours, from an earlier try
+            }
+            let mut c = command(uv()?);
+            c.args(["venv", "--python", "3.12"]).arg(&venv);
+            Ok(c)
+        }));
+    }
+    {
+        let py = py.clone();
+        steps.push(Box::new(move || {
+            let mut c = command(uv()?);
+            c.args(["pip", "install", "--python"]).arg(&py).arg("numpy");
+            Ok(c)
+        }));
+    }
+    steps.push(Box::new(move || {
+        let mut c = command(uv()?);
+        c.args(["pip", "install", "--python"]).arg(&py).arg("torch");
+        if !cfg!(target_os = "macos") {
+            let gpu = which("nvidia-smi").is_some();
+            c.args(["--index-url", if gpu { "https://download.pytorch.org/whl/cu128" } else { "https://download.pytorch.org/whl/cpu" }]);
+        }
+        Ok(c)
+    }));
+    steps
+}
+
+/// A setup fix: Song Deck's `npm install` or sound bank, uv, or Python with PyTorch.
 #[tauri::command]
 pub async fn train_fix(
     state: tauri::State<'_, Trainer>,
@@ -775,6 +860,18 @@ pub async fn train_fix(
     fix: String,
 ) -> Result<(), String> {
     let settings = resolved(&settings);
+    match fix.as_str() {
+        "uv-install" => return spawn_chain(&state, &fix, vec![uv_install()]),
+        "python-install" => {
+            let mut steps = Vec::new();
+            if which("uv").is_none() {
+                steps.push(uv_install());
+            }
+            steps.extend(python_install(&settings));
+            return spawn_chain(&state, &fix, steps);
+        }
+        _ => {}
+    }
     let npm = which(if cfg!(windows) { "npm.cmd" } else { "npm" })
         .or_else(|| which("npm"))
         .ok_or("npm not found: install Node.js")?;
@@ -808,6 +905,7 @@ fn ended(state: &Trainer) -> bool {
 pub fn stop(state: &Trainer) {
     let pid = {
         let mut job = state.job.lock().unwrap();
+        job.queue.clear();
         let Some(c) = job.child.as_mut() else { return };
         if c.try_wait().ok().flatten().is_some() {
             return;
@@ -885,10 +983,19 @@ pub async fn train_poll(
 ) -> Result<Progress, ()> {
     let (running, kind, exit, lines, next) = {
         let mut job = state.job.lock().unwrap();
-        if let Some(c) = job.child.as_mut() {
-            if let Ok(Some(st)) = c.try_wait() {
-                job.exit = Some(st.code().unwrap_or(-1));
-                job.child = None;
+        let ended = job.child.as_mut().and_then(|c| c.try_wait().ok().flatten());
+        if let Some(st) = ended {
+            job.child = None;
+            job.exit = Some(st.code().unwrap_or(-1));
+            if st.success() && !job.queue.is_empty() {
+                job.exit = None;
+                if let Err(e) = next_step(&mut job, &state.job) {
+                    job.lines.push(e);
+                    job.queue.clear();
+                    job.exit = Some(1);
+                }
+            } else {
+                job.queue.clear();
             }
         }
         let start = since.saturating_sub(job.dropped).min(job.lines.len());
