@@ -77,6 +77,9 @@ Start `backtrack-surveil serve` and add a transcription provider at `http://127.
 It implements Song Deck's `POST /transcribe` contract plus an optional `context` field, with
 `GET /info`, `GET /health` and `POST /cancel`; see [docs/http-api.md](docs/http-api.md).
 
+Song Deck can also run Surveil inside its page with nothing to install: the WebAssembly build
+([wasm/](wasm/README.md)) with a model installed as a Song Deck model plugin.
+
 ## How it works
 
 ![How it fits: your audio and the model weights go through core/ into Surveil (and Explode, coming in S0), which you reach from the CLI, the page or Song Deck](docs/images/architecture.jpg)

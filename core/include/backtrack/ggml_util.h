@@ -3,6 +3,7 @@
 // device.
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -19,6 +20,9 @@ class GgufFile {
 public:
     // meta_only reads the metadata and tensor shapes without the data.
     static std::unique_ptr<GgufFile> open(const std::string & path, bool meta_only = false);  // throws BadInput
+    // The same from bytes in memory (the WebAssembly build has no files);
+    // the tensors are copied, so `data` can be freed afterwards.
+    static std::unique_ptr<GgufFile> open_memory(const void * data, size_t size, const std::string & label);
     // Take ownership of an in-memory GGUF (metadata plus a CPU context
     // holding its tensors), e.g. a generated placeholder model.
     static std::unique_ptr<GgufFile> adopt(gguf_context * gguf, ggml_context * tensors, const std::string & label);

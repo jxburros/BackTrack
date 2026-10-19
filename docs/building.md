@@ -47,6 +47,15 @@ is the best available).
 
 For a portable CPU build (CI, releases) add `-DGGML_NATIVE=OFF`.
 
+## WebAssembly
+
+Surveil also builds with Emscripten, for Song Deck's page; see [wasm/README.md](../wasm/README.md):
+
+```bash
+bash scripts/install-emsdk.sh ~/emsdk && source ~/emsdk/emsdk_env.sh
+emcmake cmake -B build-wasm -DCMAKE_BUILD_TYPE=Release && cmake --build build-wasm -j
+```
+
 ## Layout
 
 ![How it fits: core/, the two apps, and the three ways in (CLI, page, Song Deck)](images/architecture.jpg)
@@ -60,7 +69,7 @@ ui/              the page both binaries serve, with its CSS, scripts and fonts (
                  time by cmake/EmbedPage.cmake; the look is design/AGENT-SPEC.md)
 apps/surveil     transcriber: model graph, placeholder models, note picking, CLI and server
 apps/explode     separator (S0)
-wasm/            WebAssembly builds (T4)
+wasm/            the WebAssembly build of Surveil and its JS wrapper (T4)
 training/        training code (T1)
 third_party/     cpp-httplib, nlohmann/json, dr_libs
 tests/           unit tests

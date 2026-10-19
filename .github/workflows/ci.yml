@@ -1,6 +1,7 @@
 # BackTrack CI: build against the pinned ggml, run the unit tests and the
 # end-to-end smoke test on Linux, macOS and Windows; then, on Linux, the
-# training code's parity check and a few-second toy training run.
+# training code's parity check, a few-second toy training run, and the
+# WebAssembly build checked against the native binary.
 name: ci
 
 on:
@@ -117,3 +118,39 @@ jobs:
 
       - name: Performed audio (shifted labels, accepted windows, resume; about 20 s)
         run: python -m training.check_performed --work "$RUNNER_TEMP/perf"
+
+  # wasm/: the WebAssembly build must give the native binary's notes.
+  wasm:
+    needs: build
+    name: wasm (Emscripten, checked against native)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: backtrack-surveil-linux
+          path: build
+
+      - name: Install ggml and Emscripten
+        run: |
+          npm ci
+          bash scripts/install-emsdk.sh "$RUNNER_TEMP/emsdk"
+
+      - name: Build
+        run: |
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          emcmake cmake -B build-wasm -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-wasm -j 4
+          ls -l build-wasm/surveil-core.wasm
+
+      - name: Check against the native binary
+        run: |
+          chmod +x build/backtrack-surveil
+          python3 scripts/make-test-audio.py test-audio
+          node wasm/test.mjs build-wasm test-audio build/backtrack-surveil

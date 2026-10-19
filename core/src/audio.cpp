@@ -7,6 +7,7 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <numeric>
 
 #define DR_WAV_IMPLEMENTATION
 #define DR_WAV_NO_STDIO
@@ -165,19 +166,48 @@ std::vector<float> resample(const std::vector<float> & x, int rate_in, int rate_
     const size_t n_out = size_t(std::floor(double(x.size()) * ratio));
     std::vector<float> y(n_out);
     const long n_in = long(x.size());
+    auto weight = [&](double distance) {
+        double pos = std::fabs(distance) * cutoff * kTableRes;
+        size_t k = size_t(pos);
+        double frac = pos - double(k);
+        return table[k] + (table[k + 1] - table[k]) * frac;
+    };
+
+    // Common rates (44.1 or 48 kHz to 22.05 kHz) repeat after a few output
+    // samples: output j sits at input base + phase / L, so the kernel of each
+    // phase is computed once (the same weights, several times faster).
+    const long g = std::gcd(long(rate_in), long(rate_out));
+    const long L = rate_out / g, M = rate_in / g;
+    if (L <= 1024) {
+        std::vector<long> first(static_cast<size_t>(L), 0);
+        std::vector<std::vector<double>> kernel(static_cast<size_t>(L));
+        for (long p = 0; p < L; p++) {
+            double c = double(p) / double(L);
+            long lo = long(std::ceil(c - span)), hi = long(std::floor(c + span));
+            first[size_t(p)] = lo;
+            for (long o = lo; o <= hi; o++) kernel[size_t(p)].push_back(weight(double(o) - c));
+        }
+        for (size_t j = 0; j < n_out; j++) {
+            if ((j & 0xffff) == 0) progress.check();
+            const long base = long(j / size_t(L)) * M + long(j % size_t(L)) * M / L;
+            const long p = long((j % size_t(L)) * size_t(M) % size_t(L));
+            const std::vector<double> & k = kernel[size_t(p)];
+            const long i0 = base + first[size_t(p)];
+            const long a = std::max(0L, -i0), b = std::min(long(k.size()), n_in - i0);
+            double acc = 0;
+            for (long t = a; t < b; t++) acc += k[size_t(t)] * x[size_t(i0 + t)];
+            y[j] = float(acc * cutoff);
+        }
+        return y;
+    }
+
     for (size_t j = 0; j < n_out; j++) {
         if ((j & 0xffff) == 0) progress.check();
         double centre = double(j) / ratio;
         long lo = long(std::ceil(centre - span));
         long hi = long(std::floor(centre + span));
         double acc = 0;
-        for (long i = std::max(lo, 0L); i <= std::min(hi, n_in - 1); i++) {
-            double pos = std::fabs(double(i) - centre) * cutoff * kTableRes;
-            size_t k = size_t(pos);
-            double frac = pos - double(k);
-            double w = table[k] + (table[k + 1] - table[k]) * frac;
-            acc += w * x[size_t(i)];
-        }
+        for (long i = std::max(lo, 0L); i <= std::min(hi, n_in - 1); i++) acc += weight(double(i) - centre) * x[size_t(i)];
         y[j] = float(acc * cutoff);
     }
     return y;

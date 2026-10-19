@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Surveil in WebAssembly** (milestone T4, `wasm/`): the same pipeline built with Emscripten,
+  with a JS wrapper (`createSurveil()`), for Song Deck's job worker. It gives the native binary's
+  notes (checked in CI by `wasm/test.mjs`), transcribes a 4-minute song in about 22 s on one
+  thread, and reports progress and cancels between chunks. Releases attach it as
+  `backtrack-surveil-wasm-<tag>.zip`. `scripts/install-emsdk.sh` installs the pinned Emscripten.
+- `GgufFile::open_memory`: models load from bytes as well as files.
+
+### Changed
+
+- **Resampling is about 5× faster** for the usual rates (44.1 and 48 kHz to 22.05 kHz): each
+  phase's kernel is computed once. Results are unchanged (within 3e-8).
+
 ## [0.3.3] - 2026-10-19
 
 ### Fixed
