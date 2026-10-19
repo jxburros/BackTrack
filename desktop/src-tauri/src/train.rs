@@ -546,36 +546,48 @@ pub async fn train_fix(
     spawn(&state, &fix, cmd)
 }
 
-/// STOP: the pipeline marks the run interrupted and RESUME continues it.
+/// STOP: the pipeline marks the run interrupted and RESUME continues it. Async, so the wait
+/// for it to stop never holds up the window.
 #[tauri::command]
-pub fn train_stop(state: tauri::State<'_, Trainer>) {
+pub async fn train_stop(state: tauri::State<'_, Trainer>) -> Result<(), ()> {
     stop(&state);
+    Ok(())
+}
+
+/// Whether the job's process has ended (taking the lock only briefly, so polling goes on).
+fn ended(state: &Trainer) -> bool {
+    let mut job = state.job.lock().unwrap();
+    match job.child.as_mut() {
+        Some(c) => c.try_wait().ok().flatten().is_some(),
+        None => true,
+    }
 }
 
 pub fn stop(state: &Trainer) {
-    let mut job = state.job.lock().unwrap();
-    let Some(child) = job.child.as_mut() else {
-        return;
+    let pid = {
+        let mut job = state.job.lock().unwrap();
+        let Some(c) = job.child.as_mut() else { return };
+        if c.try_wait().ok().flatten().is_some() {
+            return;
+        }
+        c.id()
     };
-    if child.try_wait().ok().flatten().is_some() {
-        return;
-    }
-    let pid = child.id();
     #[cfg(unix)]
     {
-        // SIGTERM to the whole group; the pipeline records where it stopped.
-        let _ = Command::new("kill")
-            .args(["-TERM", &format!("-{pid}")])
-            .status();
+        // The job runs in its own process group (see spawn): SIGTERM to the group, so the
+        // pipeline records where it stopped and what it started stops too; SIGKILL if it lingers.
+        let Ok(pgid) = i32::try_from(pid) else { return };
+        if pgid <= 1 {
+            return;
+        }
+        unsafe { libc::kill(-pgid, libc::SIGTERM) };
         for _ in 0..50 {
-            if child.try_wait().ok().flatten().is_some() {
+            if ended(state) {
                 return;
             }
             std::thread::sleep(Duration::from_millis(200));
         }
-        let _ = Command::new("kill")
-            .args(["-KILL", &format!("-{pid}")])
-            .status();
+        unsafe { libc::kill(-pgid, libc::SIGKILL) };
     }
     #[cfg(windows)]
     {
@@ -583,7 +595,12 @@ pub fn stop(state: &Trainer) {
             .args(["/T", "/F", "/PID", &pid.to_string()])
             .status();
     }
-    let _ = child.wait();
+    for _ in 0..50 {
+        if ended(state) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 // ---------------------------------------------------------------------------- progress
@@ -619,7 +636,11 @@ fn latest_run(s: &Settings) -> Option<PathBuf> {
 }
 
 #[tauri::command]
-pub fn train_poll(state: tauri::State<'_, Trainer>, settings: Settings, since: usize) -> Progress {
+pub async fn train_poll(
+    state: tauri::State<'_, Trainer>,
+    settings: Settings,
+    since: usize,
+) -> Result<Progress, ()> {
     let (running, kind, exit, lines, next) = {
         let mut job = state.job.lock().unwrap();
         if let Some(c) = job.child.as_mut() {
@@ -659,7 +680,7 @@ pub fn train_poll(state: tauri::State<'_, Trainer>, settings: Settings, since: u
             .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
             .map(|r| serde_json::json!({ "promotion": r["promotion"] }));
     }
-    Progress {
+    Ok(Progress {
         running,
         kind,
         exit,
@@ -669,5 +690,5 @@ pub fn train_poll(state: tauri::State<'_, Trainer>, settings: Settings, since: u
         steps,
         report,
         summary,
-    }
+    })
 }
