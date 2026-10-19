@@ -1,6 +1,6 @@
 {
   "name": "@jxburros/backtrack",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "description": "BackTrack - stem separator (Explode) and MIDI transcriber (Surveil) on ggml.",
   "license": "MIT",
