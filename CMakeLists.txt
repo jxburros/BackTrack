@@ -133,6 +133,9 @@ add_executable(backtrack-surveil
     apps/surveil/surveil.cpp
 )
 target_link_libraries(backtrack-surveil PRIVATE backtrack-core backtrack-server backtrack-ui backtrack-json)
+if (WIN32)
+    target_link_libraries(backtrack-surveil PRIVATE shell32)  # ShellExecuteA: open the page on double-click
+endif()
 
 if (BACKTRACK_BUILD_TESTS)
     enable_testing()

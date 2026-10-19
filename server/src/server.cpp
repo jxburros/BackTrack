@@ -419,6 +419,7 @@ bool BridgeServer::listen() {
         if (!s.svr.bind_to_port(s.opt.host, s.opt.port)) return false;
         s.port = s.opt.port;
     }
+    if (s.opt.on_listening) s.opt.on_listening(s.port);
     return s.svr.listen_after_bind();
 }
 

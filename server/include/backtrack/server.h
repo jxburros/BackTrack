@@ -60,6 +60,7 @@ struct ServerOptions {
     // index.html's <html> tag are replaced with these, so the page opens in the app's theme.
     std::string theme;                         // "wiretap"
     bool quiet = false;                        // no per-request log lines
+    std::function<void(int port)> on_listening; // called once the port is bound, before serving
 };
 
 struct JobContext {

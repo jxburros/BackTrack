@@ -21,6 +21,14 @@ with weights in GGUF; no Python at run time.
 
 ## Quick start
 
+From a [release](https://github.com/jxburros/BackTrack/releases): unpack the archive for your
+platform and run `backtrack-surveil serve`, then open http://127.0.0.1:8826. On Windows you can
+just double-click `backtrack-surveil.exe`: it starts the server and opens the page; keep its
+window open while you use it. To use a downloaded model such as `surveil-drums-0.1.0.gguf`,
+put it in a `models` folder next to the binary.
+
+From source:
+
 ```bash
 npm ci                                        # fetch the pinned ggml
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j

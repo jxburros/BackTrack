@@ -22,6 +22,10 @@
 
 #ifdef _WIN32
 #include <io.h>
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <shellapi.h>
 #else
 #include <unistd.h>
 #endif
@@ -88,6 +92,25 @@ bool stderr_is_terminal() {
     return _isatty(_fileno(stderr));
 #else
     return isatty(fileno(stderr));
+#endif
+}
+
+// True when Windows made a console just for us, as it does when the .exe is double-clicked:
+// that window closes the moment we exit, so printing usage would only flash it.
+bool started_by_double_click() {
+#ifdef _WIN32
+    DWORD ids[2];
+    return GetConsoleProcessList(ids, 2) == 1;
+#else
+    return false;
+#endif
+}
+
+void open_in_browser(const std::string & url) {
+#ifdef _WIN32
+    ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+#else
+    (void)url;
 #endif
 }
 
@@ -299,7 +322,7 @@ int cmd_make_placeholder(const Args & a) {
     return 0;
 }
 
-int cmd_serve(const Args & a, const char * argv0) {
+int cmd_serve(const Args & a, const char * argv0, bool open_page = false) {
     std::string requested;
     auto registry = make_registry(a, argv0, requested);
     const std::string default_model = requested;
@@ -323,6 +346,8 @@ int cmd_serve(const Args & a, const char * argv0) {
         so.page.push_back({f.path, f.type, std::string(reinterpret_cast<const char *>(f.data), f.size)});
     so.theme = "wiretap";
     so.quiet = a.flag("--quiet");
+    if (open_page)
+        so.on_listening = [](int port) { open_in_browser("http://127.0.0.1:" + std::to_string(port) + "/"); };
     bool loopback = so.host == "127.0.0.1" || so.host == "localhost" || so.host == "::1";
     if (!loopback && so.token.empty())
         std::fprintf(stderr, "warning: listening on %s without --api-key; anyone who can reach it can use it\n", so.host.c_str());
@@ -387,8 +412,13 @@ int cmd_serve(const Args & a, const char * argv0) {
 
 } // namespace
 
-int main(int argc, char ** argv) {
+int run(int argc, char ** argv, bool double_click) {
     try {
+        if (double_click) {
+            std::fprintf(stderr, "Opening the Surveil page in your browser. Keep this window open while you use it;\n"
+                                 "close it to stop. For the command line, run backtrack-surveil --help in a terminal.\n\n");
+            return cmd_serve(Args{}, argv[0], true);
+        }
         std::string cmd = argc > 1 ? argv[1] : "";
         if (cmd.empty() || cmd == "--help" || cmd == "-h" || cmd == "help") {
             std::fputs(kUsage, stdout);
@@ -422,4 +452,14 @@ int main(int argc, char ** argv) {
         std::fprintf(stderr, "error: %s\n", e.what());
         return 1;
     }
+}
+
+int main(int argc, char ** argv) {
+    const bool double_click = argc == 1 && started_by_double_click();
+    int rc = run(argc, argv, double_click);
+    if (double_click && rc != 0) {
+        std::fputs("\npress Enter to close this window\n", stderr);
+        std::getchar();
+    }
+    return rc;
 }
