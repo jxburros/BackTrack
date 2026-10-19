@@ -10,8 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - **TRAIN setup check** reported "no Python found" for any Python without PyTorch (it couldn't read
   the probe's answer), so it never told you to install PyTorch. It now finds Python itself: the `py`
-  launcher (3.12 before a newer, PyTorch-less 3.14+), conda, `~/backtrack-training/venv` and
-  ACE-Step's own `.venv`; and says when the newest Python is too new for PyTorch.
+  launcher (any version, 3.10 to 3.15), conda, `~/backtrack-training/venv` and ACE-Step's own
+  `.venv`, and uses whichever one has PyTorch.
 - **TRAIN** found `uv`, Python and Node only on the PATH the app started with. On Windows it now also
   reads the user and system PATH from the registry, `~/.local/bin` and python.org's install folders.
 - **TRAIN** finds the Song Deck and ACE-Step folders by what's in them (also unzipped downloads such

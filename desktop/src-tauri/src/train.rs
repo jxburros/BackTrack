@@ -452,13 +452,13 @@ fn python_candidates(s: &Settings) -> Vec<Cand> {
         let launcher = which("py");
         if cfg!(windows) {
             if let Some(py) = launcher {
-                for ver in ["3.12", "3.11", "3.13", "3.10", "3.14"] {
+                for ver in ["3.15", "3.14", "3.13", "3.12", "3.11", "3.10"] {
                     v.push(Cand { label: format!("py -{ver}"), prog: py.clone(), args: vec![format!("-{ver}")] });
                 }
                 v.push(Cand { label: "py".into(), prog: py, args: vec![] });
             }
         }
-        for name in ["python3.12", "python3.11", "python3.13", "python3.10", "python3", "python"] {
+        for name in ["python3.15", "python3.14", "python3.13", "python3.12", "python3.11", "python3.10", "python3", "python"] {
             if let Some(p) = which(name) {
                 if !v.iter().any(|c| c.prog == p && c.args.is_empty()) {
                     v.push(Cand { label: name.into(), prog: p, args: vec![] });
@@ -491,9 +491,8 @@ fn probe_python(s: &Settings) -> Result<PythonInfo, String> {
         if info.torch.is_some() {
             return Ok(info);
         }
-        // Without PyTorch anywhere, name a Python PyTorch supports rather than the newest.
-        let ok_ver = |i: &PythonInfo| (10..=13).contains(&minor(&i.version));
-        if best.as_ref().is_none_or(|b| ok_ver(&info) && !ok_ver(b)) {
+        // Without PyTorch anywhere, name the newest Python: that's the one to install it in.
+        if best.as_ref().is_none_or(|b| minor(&info.version) > minor(&b.version)) {
             best = Some(info);
         }
     }
@@ -553,14 +552,11 @@ pub async fn train_check(app: AppHandle, settings: Settings) -> Vec<Check> {
             let auto = if s.python.trim().is_empty() { " (found automatically)" } else { "" };
             push("Python and PyTorch", state, format!("Python {} with PyTorch {}, {gpu}: {}{auto}", p.version, p.torch.unwrap_or_default(), p.exe), None);
         }
-        Ok(p) if minor(&p.version) > 13 => push("Python and PyTorch", "fail", format!(
-            "the newest Python here is {} ({}), which PyTorch doesn't support yet. Install Python 3.12 next to it (winget install -e --id Python.Python.3.12, or uv python install 3.12) and PyTorch in it: BackTrack finds it by itself, no need to remove {}.",
-            p.version, p.exe, p.version), None),
         Ok(p) => push("Python and PyTorch", "fail", format!(
-            "Python {} at {} can't load PyTorch ({}). Install it: see Python and PyTorch in docs/training-at-home.md, or choose another Python above.",
+            "Python {} at {} can't load PyTorch ({}). Install it in that Python (docs/training-at-home.md, step 2; for a very new Python without a release yet, pytorch.org's pre-release or nightly index), or choose another Python above.",
             p.version, p.exe, p.error.unwrap_or_default()), None),
         Err(e) => push("Python and PyTorch", "fail",
-            format!("{e}. Install Python 3.12 and PyTorch (docs/training-at-home.md), or choose your Python above. BackTrack looks in PATH, the py launcher, conda and ~/backtrack-training/venv."), None),
+            format!("{e}. Install Python and PyTorch (docs/training-at-home.md), or choose your Python above. BackTrack looks in PATH, the py launcher, conda and ~/backtrack-training/venv."), None),
     }
 
     let npm = which(if cfg!(windows) { "npm.cmd" } else { "npm" }).or_else(|| which("npm"));
