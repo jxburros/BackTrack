@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-20
+
 ### Added
 
 - **Training libraries** (`training/libraries.py`): a catalogue of outside datasets with their
@@ -24,7 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 
 - The pipeline asks Song Deck for only the separated stems it keeps (`dataset:render
-  --separate-stems`, in Song Deck after 0.18.0), instead of deleting the others afterwards.
+  --separate-stems`, Song Deck 0.19.0 or later), instead of deleting the others afterwards.
 
 - `docs/plans/theory.md`: plan for theory models (milestone M7): a chords and key model in
   Surveil, a harmony model in a new app, how both are trained, and a shareable interface.

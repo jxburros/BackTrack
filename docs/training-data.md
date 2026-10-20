@@ -298,7 +298,7 @@ instruments, and transcribing a mix is mostly about the other instruments. The u
 
 ## 7. Making the training songs faster
 
-The two costs are rendering (CPU) and ACE-Step covers (GPU). Song Deck now (after 0.18.0)
+The two costs are rendering (CPU) and ACE-Step covers (GPU). Song Deck 0.19.0
 renders the chosen stems once instead of twice, computes only the separated stems the pipeline
 keeps, and asks ACE-Step for the next take before separating and judging the current one, so the
 GPU no longer waits for the CPU. Measured on one job of a 4-core machine, with the sound bank,
