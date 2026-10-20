@@ -18,7 +18,7 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 const MAX_LINES: usize = 4000;
-const STEPS: [&str; 6] = ["render", "perform", "train", "evaluate", "parity", "report"];
+const STEPS: [&str; 7] = ["render", "perform", "libraries", "train", "evaluate", "parity", "report"];
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -32,6 +32,9 @@ pub struct Settings {
     pub epochs: u32,
     pub device: String, // auto | cuda | mps | cpu
     pub kind: String,   // what to train: drums | bass | melody
+    pub queue: Vec<String>, // kinds to train one after another (ONE AFTER ANOTHER)
+    pub start_at: String,   // "HH:MM" for the queue to wait for, or empty to start now
+    pub libraries: Vec<String>, // outside datasets to train on too (training/libraries.py ids)
 }
 
 impl Default for Settings {
@@ -50,6 +53,9 @@ impl Default for Settings {
             epochs: 30,
             device: "auto".into(),
             kind: "drums".into(),
+            queue: vec!["drums".into(), "bass".into(), "melody".into()],
+            start_at: String::new(),
+            libraries: Vec::new(),
         }
     }
 }
@@ -61,7 +67,7 @@ type Step = Box<dyn FnOnce() -> Result<Command, String> + Send>;
 struct Job {
     child: Option<Child>,
     queue: Vec<Step>, // what runs next, one after another, while each one succeeds
-    kind: String, // run | resume | songdeck-install | soundbank | uv-install | python-install
+    kind: String, // run | resume | queue | songdeck-install | soundbank | uv-install | python-install
     lines: Vec<String>,
     dropped: usize, // lines dropped from the front, so offsets stay stable
     exit: Option<i32>,
@@ -791,6 +797,8 @@ fn write_config(app: &AppHandle, s: &Settings, python: &str) -> Result<PathBuf, 
         "render": { "songs": s.songs.max(50), "only_stems": stems, "keep_separated": keep },
         "perform": { "enabled": s.use_acestep, "server": server },
         "train": { "epochs": s.epochs.max(1), "device": s.device, "audio": "stem,separated,performed" },
+        // Downloaded and imported once into the data folder by the pipeline's libraries step.
+        "libraries": { "dir": data.join("libraries"), "use": s.libraries, "fetch": true },
     });
     std::fs::create_dir_all(&data).map_err(|e| format!("can't create {}: {e}", data.display()))?;
     let p = config_path(s);
@@ -829,6 +837,77 @@ pub async fn train_start(
         cmd.args(["--run", "latest"]);
     }
     spawn(&state, if resume { "resume" } else { "run" }, cmd)
+}
+
+const KINDS: [&str; 3] = ["drums", "bass", "melody"];
+
+/// The queue's state (training/queue.py --status), in the data folder.
+fn queue_status_path(s: &Settings) -> PathBuf {
+    expand(&s.data).join("queue-status.json")
+}
+
+/// ONE AFTER ANOTHER: trains the ticked kinds in turn (training/queue.py), each with these
+/// settings and its own songs and runs, optionally waiting for `start_at` first. With `resume`,
+/// the stopped queue goes on: finished kinds are skipped, the stopped one resumes its run.
+#[tauri::command]
+pub async fn train_start_queue(
+    app: AppHandle,
+    state: tauri::State<'_, Trainer>,
+    settings: Settings,
+    resume: bool,
+) -> Result<(), String> {
+    let settings = resolved(&settings);
+    let dir = trainer_dir(&app)
+        .filter(|d| d.join("training").join("queue.py").is_file())
+        .ok_or("the training code is missing or too old: reinstall BackTrack")?;
+    let py = probe_python(&settings)?;
+    if py.torch.is_none() {
+        return Err(format!("Python at {} can't load PyTorch: run CHECK SETUP", py.exe));
+    }
+    let status = queue_status_path(&settings);
+    let mut cmd = command(&py.exe);
+    cmd.args(["-u", "-m", "training.queue", "--status"])
+        .arg(&status)
+        .current_dir(&dir)
+        .env("PYTHONUNBUFFERED", "1")
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .env("BACKTRACK_HIDE_CONSOLES", "1");
+    if resume {
+        if !status.is_file() {
+            return Err("there is no stopped queue to resume: start one".into());
+        }
+        cmd.arg("--resume");
+    } else {
+        let kinds: Vec<&str> = KINDS.into_iter().filter(|k| settings.queue.iter().any(|q| q == k)).collect();
+        if kinds.is_empty() {
+            return Err("tick at least one model to train".into());
+        }
+        for k in kinds {
+            let s = Settings { kind: k.into(), ..settings.clone() };
+            cmd.arg("--config").arg(write_config(&app, &s, &py.exe)?);
+        }
+    }
+    let at = settings.start_at.trim();
+    if !at.is_empty() {
+        cmd.args(["--start-at", at]);
+    }
+    spawn(&state, "queue", cmd)
+}
+
+/// The queue's entries as (kind, status), and the kind running now (or the last one started).
+fn queue_info(s: &Settings) -> Option<(Vec<(String, String)>, Option<String>)> {
+    let st: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(queue_status_path(s)).ok()?).ok()?;
+    let entries: Vec<(String, String)> = st["entries"]
+        .as_array()?
+        .iter()
+        .map(|e| (e["kind"].as_str().unwrap_or("").to_string(), e["status"].as_str().unwrap_or("").to_string()))
+        .collect();
+    let current = st["current"]
+        .as_u64()
+        .and_then(|i| entries.get(i as usize))
+        .or_else(|| entries.iter().rev().find(|(_, status)| status != "waiting"))
+        .map(|(k, _)| k.clone());
+    Some((entries, current))
 }
 
 /// uv's own installer (what docs.astral.sh/uv gives to copy), run for the user.
@@ -991,6 +1070,8 @@ pub struct Progress {
     report: Option<String>,       // report.md of the shown run, once written
     summary: Option<serde_json::Value>,
     best: Option<serde_json::Value>, // the best model so far, its Song Deck plugin and whether it's installed
+    queue: Option<Vec<(String, String)>>, // during a queue: (kind, status) of each entry
+    shown: String,                        // the kind whose run is shown (a queue's current one)
 }
 
 /// Song Deck's plugins folder for plugins you add: <data dir>/plugins, the data dir being
@@ -1104,6 +1185,17 @@ pub async fn train_poll(
             job.dropped + job.lines.len(),
         )
     };
+    // During a queue (and after it) the run shown is the queue's current kind's.
+    let mut queue = None;
+    let mut settings = settings;
+    if kind == "queue" {
+        if let Some((entries, current)) = queue_info(&settings) {
+            if let Some(k) = current {
+                settings.kind = k;
+            }
+            queue = Some(entries);
+        }
+    }
     let run_dir = latest_run(&settings);
     let mut steps = Vec::new();
     let mut report = None;
@@ -1137,5 +1229,7 @@ pub async fn train_poll(
         report,
         summary,
         best: best_info(&settings),
+        queue,
+        shown: crate::train::kind(&settings).to_string(),
     })
 }

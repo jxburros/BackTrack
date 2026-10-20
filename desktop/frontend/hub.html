@@ -59,11 +59,32 @@
       <label class="bt-field"><span class="bt-label">Epochs</span><input class="bt-input" id="t-epochs" type="number" min="1"></label>
       <label class="bt-field"><span class="bt-label">Device</span>
         <span class="bt-select"><select id="t-device"><option value="auto">Best available</option><option value="cuda">NVIDIA GPU</option><option value="mps">Apple GPU</option><option value="cpu">CPU</option></select></span></label>
+      <fieldset class="train-wide train-libraries"><legend class="bt-label">Also train on (free, CC BY 4.0; downloaded once into the data folder)</legend>
+        <label class="bt-check"><input type="checkbox" data-library="egmd"><span class="bt-label">E-GMD: 444 h of real drumming (drums; 90 GB)</span></label>
+        <label class="bt-check"><input type="checkbox" data-library="groove"><span class="bt-label">Groove MIDI: 14 h of drumming (drums; 5 GB)</span></label>
+        <label class="bt-check"><input type="checkbox" data-library="slakh2100"><span class="bt-label">Slakh2100: 145 h of rendered songs (drums, bass, melody; 105 GB)</span></label>
+        <label class="bt-check"><input type="checkbox" data-library="babyslakh"><span class="bt-label">BabySlakh: 20 Slakh songs, to try it (1 GB)</span></label>
+      </fieldset>
     </div>
     <div class="train-actions">
       <button class="bt-btn bt-btn--ghost" type="button" id="t-check">Check setup</button>
     </div>
     <ul class="train-checks" id="t-checks" aria-live="polite"></ul>
+  </section>
+
+  <section class="bt-panel train-panel" aria-labelledby="train-queue">
+    <h2 class="bt-label" id="train-queue">One after another</h2>
+    <p class="train-intro">Trains several models in a row with the settings above, each with its own songs and runs: set it going in the evening and read the reports in the morning. A model that fails doesn't stop the others.</p>
+    <div class="train-grid">
+      <label class="bt-check"><input type="checkbox" data-queue="drums"><span class="bt-label">Drums</span></label>
+      <label class="bt-check"><input type="checkbox" data-queue="bass"><span class="bt-label">Bass</span></label>
+      <label class="bt-check"><input type="checkbox" data-queue="melody"><span class="bt-label">Melody</span></label>
+      <label class="bt-field"><span class="bt-label">Start at (empty: now)</span><input class="bt-input" id="t-start-at" type="time"></label>
+    </div>
+    <div class="train-actions">
+      <button class="bt-btn" type="button" id="t-queue">Start the queue</button>
+      <button class="bt-btn bt-btn--ghost" type="button" id="t-queue-resume">Resume the queue</button>
+    </div>
   </section>
 
   <section class="bt-panel train-panel" aria-labelledby="train-run">

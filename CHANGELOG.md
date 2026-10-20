@@ -8,6 +8,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Training libraries** (`training/libraries.py`): a catalogue of outside datasets with their
+  checked licences (training allowed, share-alike, evaluation only, not usable), downloading
+  (Zenodo and Magenta, resumable, checksummed) and importing as Song Deck-format datasets:
+  Slakh2100 and BabySlakh (drums, bass, melody stems with MIDI), E-GMD and the Groove MIDI Dataset.
+  The training scripts read them with `--library DIR` (`--library-audio stem,mix`), their licence
+  lines go into the model's `audio.sources`, and the pipeline's new `libraries` step fetches and
+  imports the ones in `libraries.use`. The desktop TRAIN tab has **Also train on** boxes for them.
+- **Training queue** (`training/queue.py`): several pipeline runs one after another, optionally
+  from a set time (`--start-at 23:30`), stoppable and resumable (`--resume`). The desktop TRAIN tab
+  has a **One after another** panel that runs it and follows the model training now.
+- `docs/training-data.md`: every dataset, sound bank and paid source researched for training, with
+  licences, prices and how to use each.
+
+### Changed
+
+- The pipeline asks Song Deck for only the separated stems it keeps (`dataset:render
+  --separate-stems`, in Song Deck after 0.18.0), instead of deleting the others afterwards.
+
 - `docs/plans/theory.md`: plan for theory models (milestone M7): a chords and key model in
   Surveil, a harmony model in a new app, how both are trained, and a shareable interface.
 

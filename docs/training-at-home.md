@@ -518,6 +518,29 @@ night then adds songs and covers, trains, and keeps the model only if it is bett
 is new, the run ends in a minute. A lock (`runs/pipeline.lock`) makes a run that starts while
 another is still going stop at once.
 
+### Several models in one night
+
+To train drums, bass and melody one after another (each with its own config, dataset and runs),
+use the queue; `--start-at` waits for that time, so you can set it going in the evening:
+
+```bash
+python -m training.queue --config ~/backtrack-training/pipeline.json \
+    --config ~/backtrack-training/pipeline-bass.json --config ~/backtrack-training/pipeline-melody.json --start-at 23:30
+python -m training.queue --resume --status ~/backtrack-training/queue-status.json   # after stopping it
+```
+
+In the desktop app, tick the models under **One after another**, optionally set **Start at**,
+and press **Start the queue**. A model that fails doesn't stop the others; **Resume the queue**
+retries it. To run the queue every night instead, schedule the same command (without
+`--start-at`) the way `schedule --print` shows for one config.
+
+### More training data
+
+Outside datasets with licences that allow this (E-GMD, Groove, Slakh2100, ...) are added with
+`libraries.use` in the config, or the **Also train on** boxes in the desktop app: the pipeline
+downloads and imports each one once. [training-data.md](training-data.md) lists them all, with
+their licences, sizes and what each helps.
+
 ### Linux: cron
 
 `crontab -e`, paste the two lines printed (the `PATH` line and the schedule line), save. The

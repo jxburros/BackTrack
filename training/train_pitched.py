@@ -285,6 +285,10 @@ def run(a) -> dict:
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data", action="append", required=True, help="Song Deck dataset directory (repeatable)")
+    ap.add_argument("--library", action="append",
+                    help="a library imported by training.libraries (repeatable), read with --library-audio")
+    ap.add_argument("--library-audio", default="stem,mix",
+                    help="what libraries give: stem | mix, comma-separated (default stem,mix)")
     ap.add_argument("--stem", default="bass", help="stem kinds to learn, comma-separated (default bass)")
     ap.add_argument("--audio", default="stem",
                     help="stem | separated | mix | performed, comma-separated for several (default stem)")

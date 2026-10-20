@@ -3,13 +3,15 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const invoke = window.__TAURI_INTERNALS__.invoke;
-  const STEP_NAMES = { render: 'Render songs', perform: 'ACE-Step', train: 'Train', evaluate: 'Score', parity: 'Check', report: 'Report' };
+  const STEP_NAMES = { render: 'Render songs', perform: 'ACE-Step', libraries: 'Libraries', train: 'Train', evaluate: 'Score', parity: 'Check', report: 'Report' };
   let settings = null, next = 0, timer = null, wasRunning = false;
+  let shownKind = null; // the kind whose run and best model are shown (a queue's current one)
 
   const fields = {
     songdeck: 't-songdeck', acestep: 't-acestep', python: 't-python', data: 't-data',
     songs: 't-songs', epochs: 't-epochs', device: 't-device', kind: 't-kind',
   };
+  const MODEL = { drums: 'drums', bass: 'bass', melody: 'melody' };
   const KIND = {
     drums: { word: 'drum', scrawl: 'teach surveil drums.' },
     bass: { word: 'bass', scrawl: 'teach surveil bass.' },
@@ -36,12 +38,18 @@
         : k === 'epochs' ? Math.max(1, parseInt(v, 10) || settings[k]) : v;
     }
     s.use_acestep = $('t-use-acestep').checked;
+    s.queue = [...document.querySelectorAll('[data-queue]')].filter((b) => b.checked).map((b) => b.dataset.queue);
+    s.start_at = $('t-start-at').value;
+    s.libraries = [...document.querySelectorAll('[data-library]')].filter((b) => b.checked).map((b) => b.dataset.library);
     return s;
   }
 
   function fill() {
     for (const [k, id] of Object.entries(fields)) $(id).value = settings[k] ?? '';
     $('t-use-acestep').checked = settings.use_acestep;
+    for (const b of document.querySelectorAll('[data-queue]')) b.checked = (settings.queue || []).includes(b.dataset.queue);
+    $('t-start-at').value = settings.start_at || '';
+    for (const b of document.querySelectorAll('[data-library]')) b.checked = (settings.libraries || []).includes(b.dataset.library);
     showKind();
   }
 
@@ -55,6 +63,9 @@
 
   for (const [, id] of Object.entries(fields)) $(id).addEventListener('change', save);
   $('t-use-acestep').addEventListener('change', save);
+  for (const b of document.querySelectorAll('[data-queue]')) b.addEventListener('change', save);
+  $('t-start-at').addEventListener('change', save);
+  for (const b of document.querySelectorAll('[data-library]')) b.addEventListener('change', save);
   for (const b of document.querySelectorAll('[data-pick]')) {
     b.addEventListener('click', async () => {
       const input = $(b.dataset.pick);
@@ -124,6 +135,20 @@
     run('train_start', { resume: false });
   });
   $('t-resume').addEventListener('click', () => run('train_start', { resume: true }));
+  // ONE AFTER ANOTHER: the ticked models in turn (training/queue.py), optionally from a set time.
+  $('t-queue').addEventListener('click', async () => {
+    if (!read().queue.length) {
+      $('t-status').textContent = 'Tick the models to train one after another.';
+      return;
+    }
+    const checks = await check();
+    if (checks.some((c) => c.state === 'fail')) {
+      $('t-status').textContent = 'Fix the items marked FIX first.';
+      return;
+    }
+    run('train_start_queue', { resume: false });
+  });
+  $('t-queue-resume').addEventListener('click', () => run('train_start_queue', { resume: true }));
   $('t-stop').addEventListener('click', async () => {
     $('t-stop').disabled = true;
     $('t-status').textContent = 'Stopping…';
@@ -136,7 +161,7 @@
     $('t-best-panel').hidden = !best || !best.plugin;
     if (!best || !best.plugin) return;
     const f = (v) => (typeof v === 'number' ? v.toFixed(2) : '–');
-    const word = (KIND[settings.kind] || KIND.drums).word;
+    const word = (KIND[shownKind || settings.kind] || KIND.drums).word;
     let text = `Best ${word} model so far: run ${best.run}, F ${f(best.value)} on the test songs`;
     if (typeof best.songdeck === 'number') {
       text += `; Song Deck's own transcription: ${f(best.songdeck)}.`;
@@ -153,7 +178,7 @@
     $('t-install').disabled = true;
     $('t-install-status').textContent = 'Installing…';
     try {
-      const where = await invoke('train_install', { settings });
+      const where = await invoke('train_install', { settings: { ...settings, kind: shownKind || settings.kind } });
       $('t-install-status').textContent = `Installed in ${where}. In Song Deck: Settings → Plugins, press Rescan, switch it on.`;
     } catch (e) {
       $('t-install-status').textContent = String(e);
@@ -180,15 +205,25 @@
     }
     next = p.next;
 
-    $('t-start').hidden = $('t-resume').hidden = p.running;
+    $('t-start').hidden = $('t-resume').hidden = $('t-queue').hidden = $('t-queue-resume').hidden = p.running;
     $('t-stop').hidden = !p.running;
+    const queued = p.queue
+      ? 'Queue: ' + p.queue.map(([k, st]) => `${MODEL[k] || k} ${st}`).join(' · ') + '. '
+      : '';
+    const shown = MODEL[p.shown] || p.shown;
     $('t-check').disabled = p.running;
     const fixing = ['songdeck-install', 'soundbank', 'uv-install', 'python-install'].includes(p.kind);
     const doing = { 'uv-install': 'Installing uv…', 'python-install': 'Installing Python and PyTorch: a few minutes, keep BackTrack open…' }[p.kind] || 'Setting up Song Deck…';
     if (p.running) {
-      $('t-status').textContent = fixing ? doing : 'Training: run ' + (p.run || '') + '. Keep BackTrack open.';
+      $('t-status').textContent = fixing ? doing
+        : p.kind === 'queue' ? queued + `Now: ${shown}, run ${p.run || '(waiting for its start time)'}. Keep BackTrack open.`
+        : 'Training: run ' + (p.run || '') + '. Keep BackTrack open.';
     } else if (wasRunning && p.exit !== null) {
-      $('t-status').textContent = p.exit === 0
+      $('t-status').textContent = p.kind === 'queue'
+        ? queued + (p.exit === 0 ? 'Every run finished.'
+          : p.exit === 130 ? 'Stopped. Resume the queue continues it.'
+          : 'A run failed (the lines below say why); the others ran. Fix it, then Resume the queue to retry it.')
+        : p.exit === 0
         ? (fixing ? 'Done. Check setup again.' : 'Run finished.')
         : p.exit === 130 ? 'Stopped. Resume last run continues it.'
         : 'It stopped with an error (code ' + p.exit + '): the last lines below say why. Fix it, then Resume last run.';
@@ -204,6 +239,7 @@
       li.textContent = STEP_NAMES[name] + ': ' + status;
       steps.append(li);
     }
+    shownKind = p.shown;
     showBest(p.best);
     $('t-report-panel').hidden = !p.report;
     if (p.report) {

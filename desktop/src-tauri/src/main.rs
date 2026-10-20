@@ -257,6 +257,7 @@ fn main() {
             train::train_pick,
             train::train_check,
             train::train_start,
+            train::train_start_queue,
             train::train_fix,
             train::train_stop,
             train::train_poll,

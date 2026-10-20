@@ -350,20 +350,23 @@ def _write_float_wav(path, x, rate):
 
 
 def load_items(a, stats: dict | None = None, stems=None) -> list:
-    """Items for --data/--audio/--egmd; stats (if given) gathers the
+    """Items for --data/--audio, --library/--library-audio and --egmd; stats (if given) gathers the
     performed-audio counts (datasets._performed_items). With stems (pitched
     stem kinds such as ["bass"]), pitched items from the Song Deck data."""
     items = []
     st = {} if stats is None else stats
+    # Libraries (training.libraries import) are Song Deck-format datasets without separated stems or
+    # performances: read with their own audio choices.
+    sets = [(d, a.audio) for d in a.data or []] + [(d, getattr(a, "library_audio", "stem")) for d in getattr(a, "library", None) or []]
     if stems:
-        for d in a.data or []:
-            for audio in a.audio.split(","):
+        for d, choices in sets:
+            for audio in choices.split(","):
                 items += datasets.read_songdeck_notes(d, tuple(stems), audio.strip(),
                                                       getattr(a, "min_agreement", datasets.MIN_AGREEMENT),
                                                       getattr(a, "min_offset_strength", datasets.MIN_OFFSET_STRENGTH), st)
         return items
-    for d in a.data or []:
-        for audio in a.audio.split(","):
+    for d, choices in sets:
+        for audio in choices.split(","):
             items += datasets.read_songdeck(d, audio.strip(), getattr(a, "min_agreement", datasets.MIN_AGREEMENT),
                                             getattr(a, "min_offset_strength", datasets.MIN_OFFSET_STRENGTH), st)
     if a.egmd:
@@ -379,6 +382,10 @@ def add_data_args(ap):
                     help="performed audio: use only windows whose drum F against the labels is at least this (default 0.6)")
     ap.add_argument("--min-offset-strength", type=float, default=datasets.MIN_OFFSET_STRENGTH,
                     help="performed audio: skip takes whose offset estimate is weaker than this (default 0.2)")
+    ap.add_argument("--library", action="append",
+                    help="a library imported by training.libraries (repeatable), read with --library-audio")
+    ap.add_argument("--library-audio", default="stem,mix",
+                    help="what libraries give: stem | mix, comma-separated (default stem,mix)")
     ap.add_argument("--egmd", help="E-GMD root (holding e-gmd-v1.0.0.csv)")
     ap.add_argument("--egmd-limit", type=int, default=0, help="use about N E-GMD items (spread over the list)")
     ap.add_argument("--cache", default=None, help="feature cache directory (default: <first data dir>/.cache)")
@@ -387,7 +394,7 @@ def add_data_args(ap):
 def default_cache(a) -> Path:
     if a.cache:
         return Path(a.cache)
-    first = (a.data or [a.egmd])[0]
+    first = (a.data or getattr(a, "library", None) or [a.egmd])[0]
     return Path(first) / ".cache"
 
 
@@ -404,8 +411,8 @@ def main(argv=None):
     ap.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"],
                     help="PyTorch backend's device (default auto: CUDA, then MPS, then CPU)")
     a = ap.parse_args(argv)
-    if not a.data and not a.egmd:
-        ap.error("give --data and/or --egmd")
+    if not a.data and not a.egmd and not a.library:
+        ap.error("give --data, --library and/or --egmd")
     model, fe, meta = export.load(a.model)
     if model.kind == "pitched":
         return main_pitched(a, model, fe, meta)
