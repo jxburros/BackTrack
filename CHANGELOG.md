@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `docs/plans/theory.md`: plan for theory models (milestone M7): a chords and key model in
+  Surveil, a harmony model in a new app, how both are trained, and a shareable interface.
+
 ## [0.4.0] - 2026-10-19
 
 ### Added
