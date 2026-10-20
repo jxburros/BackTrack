@@ -85,7 +85,6 @@ Song Deck can also run Surveil inside its page with nothing to install: the WebA
 
 ![How it fits: your audio and the model weights go through core/ into Surveil (and Explode, coming in S0), which you reach from the CLI, the page or Song Deck](docs/images/architecture.jpg)
 
-
 Audio is resampled to 22.05 kHz mono and turned into a harmonic constant-Q spectrogram
 ([docs/front-end.md](docs/front-end.md)). A small convolutional network on ggml gives, per
 frame, the likelihood of a note starting, sounding and ending at each of 88 pitches, plus a
@@ -117,3 +116,11 @@ own front-end settings and licence record ([docs/gguf-metadata.md](docs/gguf-met
 
 MIT (see [LICENSE](LICENSE)). Third-party code in `third_party/` keeps its own licence
 (cpp-httplib MIT, nlohmann/json MIT, dr_libs public domain or MIT-0); ggml is MIT.
+
+## Unified release procedure
+
+`release.json` is the authoritative release manifest. Keep configured embedded versions synchronized and advance affected apps (patch by default) before merging changes into main. The first adoption establishes a baseline; later PRs must pass **Release version validation**.
+
+Use **Actions → Release → Run workflow** from **main**, choose stable or preview, and leave **dry_run** enabled first. Only apps ahead of their published version in their own namespace are selected. Build/test/sign all required packages before publishing. Tag pushes and merges no longer publish migrated apps automatically. After inspecting the dry run, dispatch with dry_run disabled and satisfy configured approvals. Published versions are never overwritten; use a new version for a correction.
+
+See [.release/README.md](.release/README.md) for this repository's inventory, credentials, compatibility, and validation limits. Shared implementation: [JX Holdings release infrastructure](https://github.com/JX-Holdings-LLC/release-infrastructure).

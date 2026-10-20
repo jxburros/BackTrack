@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "apps": {
+    "backtrack": {
+      "title": "BackTrack",
+      "version": "0.5.0"
+    }
+  }
+}
