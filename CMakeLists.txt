@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 
+include("${CMAKE_CURRENT_SOURCE_DIR}/.release/version.cmake")
+
 project(backtrack
-    VERSION 0.5.0
+    VERSION ${APP_RELEASE_VERSION_CORE}
     DESCRIPTION "BackTrack - stem separator (Explode) and MIDI transcriber (Surveil)"
     LANGUAGES C CXX
 )
@@ -103,7 +105,7 @@ add_library(backtrack-core STATIC
     core/src/music.cpp
 )
 target_include_directories(backtrack-core PUBLIC core/include PRIVATE third_party/dr_libs)
-target_compile_definitions(backtrack-core PUBLIC BACKTRACK_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(backtrack-core PUBLIC BACKTRACK_VERSION="${APP_RELEASE_VERSION}")
 target_link_libraries(backtrack-core PUBLIC ggml)
 
 if (EMSCRIPTEN)
