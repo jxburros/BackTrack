@@ -109,7 +109,7 @@ own front-end settings and licence record ([docs/gguf-metadata.md](docs/gguf-met
 - [Training at home](docs/training-at-home.md): train the drum model on your own computer with
   Song Deck's songs and ACE-Step's covers, step by step, and run it nightly
 - Plans: [overall](docs/plans/overall.md), [Surveil](docs/plans/surveil.md),
-  [Explode](docs/plans/explode.md)
+  [Explode](docs/plans/explode.md), [theory models](docs/plans/theory.md)
 
 ## Licence
 
