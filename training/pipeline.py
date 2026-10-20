@@ -10,6 +10,8 @@ Steps (docs/training-at-home.md walks through all of it):
             manifest lacks are rendered (the same seed and options give the same songs), so
             a bigger `render.songs` adds songs and keeps everything already there.
   perform   Song Deck's `npm run dataset:perform` (ACE-Step plays each song; --skip-existing).
+  libraries the outside datasets in `libraries.use` (training/libraries.py: Slakh2100, E-GMD, ...),
+            downloaded and imported into `libraries.dir` once; train reads them with --library.
   train     python3 -m training.train_drums (or train_pitched for bass and melody) into runs/<id>/.
   evaluate  python3 -m training.evaluate through the binary on the separated test split (and
             the performed test windows), for this run's model and for runs/best; Song Deck's
@@ -51,7 +53,7 @@ import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-STEPS = ["render", "perform", "train", "evaluate", "parity", "report", "rejudge"]
+STEPS = ["render", "perform", "libraries", "train", "evaluate", "parity", "report", "rejudge"]
 WINDOWS = os.name == "nt"
 
 # Sizes from the docs (Song Deck docs/TRAINING-DATA.md, training/README.md): 16-bit stereo
@@ -88,6 +90,7 @@ DEFAULTS: dict = {
         "steps_per_epoch": None, "resume": True, "skip_if_unchanged": True, "egmd": None,
         "egmd_limit": None, "extra_args": [],
     },
+    "libraries": {"dir": "~/backtrack-training/libraries", "use": [], "audio": "stem,mix", "fetch": True, "limit": None},
     "evaluate": {
         "split": "test", "performed": "auto", "previous_best": True, "songdeck_baseline": True,
         "serve_port": 0, "songdeck_extra_args": [],
@@ -543,6 +546,11 @@ class Pipeline:
             a += ["--only-stems", ",".join(as_list(rc["only_stems"]))]
         if rc["separate"]:
             a.append("--separate")
+            # Only the separated stems training keeps (Song Deck computes nothing else; older
+            # Song Decks write all four and prune() deletes the rest).
+            keep = as_list(rc["keep_separated"])
+            if keep and self.songdeck_knows("scripts/dataset/render.ts", "separate-stems"):
+                a += ["--separate-stems", ",".join(keep)]
         if rc["jobs"]:
             a += ["--jobs", str(rc["jobs"])]
         if rc["soundbank"]:
@@ -786,6 +794,40 @@ class Pipeline:
         raise StepFailed(f"ACE-Step did not answer at {url} within {sc['startup_timeout_minutes']} min; "
                          f"see {self.run_dir / 'perform-server.log'}")
 
+    # -- libraries ----------------------------------------------------------
+
+    def library_dirs(self) -> list[Path]:
+        lc = self.cfg["libraries"]
+        return [resolve(lc["dir"]) / i for i in as_list(lc["use"])]
+
+    def step_libraries(self) -> dict:
+        """Each library in libraries.use, downloaded and imported once (python3 -m training.libraries add)."""
+        lc = self.cfg["libraries"]
+        ids = as_list(lc["use"])
+        if not ids:
+            self.r.say("no libraries.use: training on Song Deck's songs only")
+            return {"libraries": []}
+        info = {}
+        for i, d in zip(ids, self.library_dirs()):
+            man = read_json(d / "manifest.json", None)
+            if man and (man.get("library") or {}).get("limit") == (lc["limit"] or None):
+                self.r.say(f"{i}: imported ({len(man['songs'])} songs) at {d}")
+                info[i] = len(man["songs"])
+                continue
+            if not lc["fetch"]:
+                raise StepFailed(f"library {i} is not imported at {d}: python3 -m training.libraries add {i} "
+                                 f"--dir {resolve(lc['dir'])} --yes (or set libraries.fetch true)")
+            args = ["add", i, "--dir", str(resolve(lc["dir"])), "--yes"]
+            if lc["limit"]:
+                args += ["--limit", str(lc["limit"])]
+            self.r.py("training.libraries", args)
+            if not self.dry:
+                man = read_json(d / "manifest.json", None)
+                if not man:
+                    raise StepFailed(f"library {i}: the import wrote no manifest at {d}")
+                info[i] = len(man["songs"])
+        return {"libraries": info}
+
     # -- train --------------------------------------------------------------
 
     def fingerprint(self) -> str:
@@ -797,7 +839,9 @@ class Pipeline:
             head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True, check=False).stdout.strip()
         except OSError:  # no git (the desktop hub's bundled copy): the training code's own files decide
             head = hashlib.sha1(b"".join(f.read_bytes() for f in sorted((REPO / "training").glob("*.py")))).hexdigest()
-        blob = json.dumps({"data": data, "train": self.cfg["train"], "model": self.cfg["model"], "backtrack": head}, sort_keys=True)
+        libs = [[str(d), len((read_json(d / "manifest.json", None) or {}).get("songs", []))] for d in self.library_dirs()]
+        blob = json.dumps({"data": data, "train": self.cfg["train"], "model": self.cfg["model"], "backtrack": head,
+                           **({"libraries": [libs, self.cfg["libraries"]["audio"]]} if libs else {})}, sort_keys=True)
         return hashlib.sha1(blob.encode()).hexdigest()
 
     def previous_complete(self) -> dict | None:
@@ -848,6 +892,10 @@ class Pipeline:
         if tc["egmd"] and not self.pitched:
             opt["--egmd"] = str(resolve(tc["egmd"]))
             opt["--egmd-limit"] = tc["egmd_limit"]
+        for d in self.library_dirs():
+            args += ["--library", str(d)]
+        if self.library_dirs():
+            opt["--library-audio"] = self.cfg["libraries"]["audio"]
         helptext = module_flags(self.cfg, module)
         for flag, v in opt.items():
             if v is None:

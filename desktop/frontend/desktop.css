@@ -30,13 +30,15 @@ body.hub { min-height: 100vh; display: flex; flex-direction: column; }
 .train-path { display: flex; gap: var(--bt-s2); }
 .train-path .bt-input { flex: 1; min-width: 0; }
 .train-actions { display: flex; flex-wrap: wrap; gap: var(--bt-s3); }
+.train-libraries { border: 0; margin: 0; padding: 0; display: grid; gap: var(--bt-s2); }
+.train-libraries legend { padding: 0; margin-bottom: var(--bt-s2); }
 .train-checks, .train-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--bt-s2); }
 .train-checks:empty { display: none; }
 .train-checks li { display: flex; align-items: center; gap: var(--bt-s3); flex-wrap: wrap; font: 400 15px/1.4 var(--bt-font-work); overflow-wrap: anywhere; }
 .train-mark { flex: none; min-width: 4.5em; }
 .train-checks li > span:nth-child(2) { flex: 1 1 24ch; min-width: 0; }
 .train-checks li[data-state="fail"] .train-mark { color: var(--bt-danger); }
-.train-steps { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.train-steps { grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .train-steps:empty { display: none; }
 .train-steps li { padding: var(--bt-s2); border: var(--bt-border) solid var(--bt-ink); font: 700 13px/1.3 var(--bt-font-work); text-transform: uppercase; }
 .train-steps li[data-status="waiting"] { color: var(--bt-ink-muted); border-color: var(--bt-ink-muted); }

@@ -143,7 +143,7 @@ def read_songdeck(root, audio: str = "stem", min_agreement: float = MIN_AGREEMEN
         raise ValueError(f"{root}/manifest.json: format is not songdeck-dataset")
     if int(man.get("version", 0)) != 1:
         raise ValueError(f"{root}/manifest.json: version {man.get('version')} is not supported (expected 1)")
-    source = f"Song Deck dataset {root.name} (Song Deck {man.get('songdeck_version', '?')}, {man.get('created', '?')}): {man.get('licence', '')}"
+    source = man.get("source") or f"Song Deck dataset {root.name} (Song Deck {man.get('songdeck_version', '?')}, {man.get('created', '?')}): {man.get('licence', '')}"
     items = []
     for song in man["songs"]:
         drum_stems = [s for s in song.get("stems", []) if s.get("drums") or s.get("stem") == "drums"]
@@ -170,6 +170,8 @@ def read_songdeck(root, audio: str = "stem", min_agreement: float = MIN_AGREEMEN
             files = [root / sep]
         elif audio == "mix":
             files = [root / song["mix"]]
+            if files == [root / s["audio"] for s in drum_stems]:
+                continue  # a drums-only library: the mix is the stem, already an item with "stem"
         else:
             raise ValueError(f"unknown audio choice {audio!r} (stem, separated, mix or performed)")
         items.append(Item(f"{song['id']}:{audio}", split, files, hits, source, float(song.get("duration", 0))))
@@ -224,7 +226,7 @@ def read_songdeck_notes(root, stems=("bass",), audio: str = "stem", min_agreemen
         raise ValueError(f"{root}/manifest.json: format is not songdeck-dataset")
     if int(man.get("version", 0)) != 1:
         raise ValueError(f"{root}/manifest.json: version {man.get('version')} is not supported (expected 1)")
-    source = f"Song Deck dataset {root.name} (Song Deck {man.get('songdeck_version', '?')}, {man.get('created', '?')}): {man.get('licence', '')}"
+    source = man.get("source") or f"Song Deck dataset {root.name} (Song Deck {man.get('songdeck_version', '?')}, {man.get('created', '?')}): {man.get('licence', '')}"
     items = []
     for song in man["songs"]:
         mine = [s for s in song.get("stems", []) if s.get("stem") in stems and not s.get("drums")]

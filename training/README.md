@@ -49,7 +49,9 @@ build/backtrack-surveil song.wav --stem drums --models-dir models -o drums.mid
 | `train_pitched.py` | The same for pitched models (bass, melody, vocals): note, onset, offset and contour targets from the stems' notes and bends |
 | `evaluate.py`      | Onset F-measure per class (drums) or note F (pitched), through PyTorch or through the binary; `pick_pitched` ports the binary's pitched note picking |
 | `check_performed.py` | Checks training on performed (ACE-Step) audio on a tiny synthetic set: shifted labels, windows, masking, resume (CI) |
-| `pipeline.py`      | The whole run in one command: render, perform, train, evaluate, parity, report; resumable and schedulable ([below](#the-pipeline-one-command)) |
+| `pipeline.py`      | The whole run in one command: render, perform, libraries, train, evaluate, parity, report; resumable and schedulable ([below](#the-pipeline-one-command)) |
+| `queue.py`         | Several pipeline runs one after another (drums, then bass, then melody overnight), optionally from a set time; stoppable and resumable ([below](#several-models-one-after-another)) |
+| `libraries.py`     | The catalogue of outside datasets with their licences; downloads and imports them as Song Deck-format datasets read with `--library` ([docs/training-data.md](../docs/training-data.md)) |
 | `midi.py`          | Standard MIDI File reading (through the tempo map) and a minimal writer                                          |
 
 ### Front end
@@ -312,9 +314,10 @@ Steps, in order (`--steps` picks some; with `--run`, the steps named run again e
 
 | Step       | What runs                                                                                                                       |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `render`   | Song Deck's `npm run dataset:render -- --skip-existing` into `dataset`, `render.chunk` songs at a time: songs already there (and their performances) are kept, missing ones rendered, and Song Deck refuses if the options differ from the dataset's. After each chunk, separated stems other than `keep_separated` are deleted. |
+| `render`   | Song Deck's `npm run dataset:render -- --skip-existing` into `dataset`, `render.chunk` songs at a time: songs already there (and their performances) are kept, missing ones rendered, and Song Deck refuses if the options differ from the dataset's. Only the separated stems in `keep_separated` are computed (`--separate-stems`; an older Song Deck writes all four and the others are deleted after each chunk). |
 | `perform`  | Song Deck's `npm run dataset:perform -- --skip-existing` (ACE-Step plays the songs), with `--judge backtrack-surveil=<url>` when a trained model exists (`perform.judge`). Starts ACE-Step first when `perform.server.command` is set and nothing answers, and stops it afterwards, so training gets the GPU. Exit 1 (some takes failed) is a warning when `allow_failed_takes`; the next run retries them. Exit 3 (ACE-Step unreachable) stops the run unless `perform.optional`. |
-| `train`    | `python3 -m training.train_drums` into `runs/<id>/<file_stem>-<version>.gguf`. Skipped when the data, the `train`/`model` settings and the BackTrack commit are the same as the last finished run (`skip_if_unchanged`; `--force` trains anyway). On a resumed run, `--resume` continues the checkpoint only if every argument is the same. |
+| `libraries` | Each library in `libraries.use` (`python3 -m training.libraries list`), downloaded and imported into `libraries.dir/<id>` once (`training.libraries add`); with `libraries.fetch` false, a missing one stops the run with the command to run. Nothing to do when `use` is empty. |
+| `train`    | `python3 -m training.train_drums` (with `--library` for each library) into `runs/<id>/<file_stem>-<version>.gguf`. Skipped when the data, the `train`/`model` settings and the BackTrack commit are the same as the last finished run (`skip_if_unchanged`; `--force` trains anyway). On a resumed run, `--resume` continues the checkpoint only if every argument is the same. |
 | `evaluate` | `python3 -m training.evaluate --binary` on the separated test split and on the performed test windows (`eval-separated.json`, `eval-performed.json`), the same for `runs/best` (`eval-best-*.json`), and Song Deck's `npm run eval:datasets -- --dataset songdeck --input separated --tasks transcribe --transcriber internal,backtrack-surveil=<url>` (`eval-songdeck.json`) with this run's model served by `backtrack-surveil serve --models-dir runs/<id>/serve-models` on a free port. No performed take passing the thresholds in the test split is not an error. |
 | `parity`   | `python3 -m training.parity --binary ... --model <this run's model>`.                                                           |
 | `report`   | `report.md` and `report.json`; the model as a Song Deck model plugin in `runs/<id>/songdeck-plugin/<file_stem>-trained/` (manifest with its SHA-256, the test score as its reliability; copied to `runs/best/` with the model);  copies the model to `runs/best/` when it beats the previous best (re-scored on today's test split) and parity passed. `weights/` is never written. |
@@ -371,6 +374,8 @@ an unknown key is an error. Relative paths are relative to the BackTrack checkou
 | `train.resume` | `true` | when a run is resumed, continue its checkpoint (only if the arguments are unchanged) |
 | `train.skip_if_unchanged` | `true` | do not retrain on the same data and settings (nightly runs with nothing new end quickly) |
 | `train.egmd`, `.egmd_limit`, `.extra_args` | `null` | also train on E-GMD (check its licence), and more `train_drums` options |
+| `libraries.use`, `.dir` | `[]`, `~/backtrack-training/libraries` | outside datasets to train on as well (ids from `python3 -m training.libraries list`, e.g. `["egmd", "slakh2100"]`) and where they are downloaded and imported ([docs/training-data.md](../docs/training-data.md)) |
+| `libraries.audio`, `.fetch`, `.limit` | `stem,mix`, `true`, `null` | what the model hears from them (`stem`, `mix`); download and import missing ones in the `libraries` step; import only about N songs of each |
 | `evaluate.split` | `test` | the split scored |
 | `evaluate.performed` | `auto` | score performed test windows when there are any (`true`/`false` to force) |
 | `evaluate.previous_best` | `true` | re-score `runs/best` on the same split, for a fair comparison as the dataset grows |
@@ -381,6 +386,23 @@ an unknown key is an error. Relative paths are relative to the BackTrack checkou
 The disk estimate: 10.6 MB per minute per 16-bit stereo file (mix, stems, the four separated
 stems before pruning), 0.25 GB per hour of audio per `train.audio` input for the feature cache,
 and for each take its audio and separated drums at 1.5× that (a margin: the files are written at the song's rate, as large as the mix).
+
+
+### Several models one after another
+
+```bash
+python3 -m training.queue --config ~/backtrack-training/pipeline.json \
+    --config ~/backtrack-training/pipeline-bass.json --config ~/backtrack-training/pipeline-melody.json \
+    [--start-at 23:30] [--stop-on-failure] [-- PIPELINE OPTIONS]
+python3 -m training.queue --resume --status ~/backtrack-training/queue-status.json
+```
+
+Each config is one pipeline run, started when the one before it has ended; a failed run doesn't
+stop the others unless `--stop-on-failure`. `--start-at` waits for that local time first.
+Ctrl-C (or STOP in the desktop app) stops the run in progress as the pipeline is always stopped;
+`--resume` skips the finished entries and resumes the stopped or failed one with `--run latest`.
+The state is in `queue-status.json` next to the first config (`--status` to change it); the
+desktop app's ONE AFTER ANOTHER panel runs the same command.
 
 ## Results so far
 

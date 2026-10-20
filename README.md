@@ -108,6 +108,8 @@ own front-end settings and licence record ([docs/gguf-metadata.md](docs/gguf-met
   drum evaluation
 - [Training at home](docs/training-at-home.md): train the drum model on your own computer with
   Song Deck's songs and ACE-Step's covers, step by step, and run it nightly
+- [Training data](docs/training-data.md): every dataset, instrument library and paid source checked
+  for training, with licences and prices, and how to add them (`training.libraries`)
 - Plans: [overall](docs/plans/overall.md), [Surveil](docs/plans/surveil.md),
   [Explode](docs/plans/explode.md), [theory models](docs/plans/theory.md)
 
