@@ -1,67 +1,59 @@
-# BackTrack release: build backtrack-surveil for each platform, attach the
-# archives, the model files in weights/ and checksums.txt to the GitHub
-# Release for the tag, with the desktop installers (desktop.yml) beside them.
-# Onyx Engine's convention (its docs/building.md, "Release binaries"):
-#
-#   backtrack-surveil-<tag>-<platformKey>.tar.gz   (.zip on Windows)
-#   backtrack-surveil-wasm-<tag>.zip                (the WebAssembly build; wasm/README.md)
-#   surveil-drums-<version>.gguf                    (models, separate downloads)
-#   checksums.txt                                   ("<sha256>  <file>" per asset)
-#   BackTrack-Surveil-<version>-<platformKey>-setup.exe, .dmg, .deb, .AppImage
-#   BackTrack-<version>-<platformKey>...            (the desktop apps; desktop.yml)
-#
-# <platformKey> is Node's `${process.platform}-${process.arch}`, which is how
-# Song Deck's binary recipe (and later JX Runtime) picks the asset. Each
-# archive is flat: the binary and the licences, no subdirectory.
-#
-# Triggers: a `v*` tag push, or manual dispatch with an existing `tag`.
-name: release
-
-on:
-  push:
-    tags:
-      - "v*"
+name: Release
+'on':
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Tag to build and release (e.g. v0.1.0)"
-        required: true
-
+      channel:
+        description: Release channel
+        type: choice
+        options:
+        - stable
+        - preview
+        default: stable
+      dry_run:
+        description: Build and verify without publishing
+        type: boolean
+        default: true
+      app:
+        description: Optional app ID; empty selects every advanced app
+        type: string
+        default: ''
 permissions:
   contents: read
-
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
 jobs:
+  plan:
+    uses: JX-Holdings-LLC/release-infrastructure/.github/workflows/plan.yml@181636b602317ba703c3f4bf12775c34560f4efb
+    with:
+      toolkit-ref: 181636b602317ba703c3f4bf12775c34560f4efb
+      channel: ${{ inputs.channel }}
+      app: ${{ inputs.app }}
   build:
     strategy:
       fail-fast: false
       matrix:
         include:
-          # 22.04 for older-glibc portability.
-          - asset-key: linux-x64
-            runs-on: ubuntu-22.04
-            archive-ext: tar.gz
-            bin-name: backtrack-surveil
-            gpu: ""
-          # CPU only for now. GPU builds (Vulkan, Metal) wait until the graph
-          # runs through a backend scheduler with CPU fallback and has been tried
-          # on real GPUs: on v0.1.0 the Metal build failed transcribing (not yet
-          # diagnosed) and the Vulkan build lacked SPIR-V headers. The models are
-          # small enough that the CPU is fast.
-          - asset-key: darwin-arm64
-            runs-on: macos-latest
-            archive-ext: tar.gz
-            bin-name: backtrack-surveil
-            gpu: ""
-          - asset-key: darwin-x64
-            runs-on: macos-15-intel
-            archive-ext: tar.gz
-            bin-name: backtrack-surveil
-            gpu: ""
-          - asset-key: win32-x64
-            runs-on: windows-latest
-            archive-ext: zip
-            bin-name: backtrack-surveil.exe
-            gpu: ""
+        - asset-key: linux-x64
+          runs-on: ubuntu-22.04
+          archive-ext: tar.gz
+          bin-name: backtrack-surveil
+          gpu: ''
+        - asset-key: darwin-arm64
+          runs-on: macos-latest
+          archive-ext: tar.gz
+          bin-name: backtrack-surveil
+          gpu: ''
+        - asset-key: darwin-x64
+          runs-on: macos-15-intel
+          archive-ext: tar.gz
+          bin-name: backtrack-surveil
+          gpu: ''
+        - asset-key: win32-x64
+          runs-on: windows-latest
+          archive-ext: zip
+          bin-name: backtrack-surveil.exe
+          gpu: ''
     name: build (${{ matrix.asset-key }})
     runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 60
@@ -69,261 +61,252 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-          fetch-depth: 0
-
-      - name: Resolve tag
-        id: tag
-        env:
-          DISPATCH_TAG: ${{ inputs.tag }}
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            tag="$DISPATCH_TAG"
-          else
-            tag="${GITHUB_REF#refs/tags/}"
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      with:
+        ref: ${{ needs.plan.outputs.sha }}
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Resolve tag
+      id: tag
+      run: |
+        echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+        echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+      shell: bash
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      with:
+        node-version: '20'
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Install ggml
+      run: npm ci
+    - name: Configure (Release, static)
+      if: runner.os != 'Windows'
+      run: |
+        cpu_flags=()
+        case "${{ matrix.asset-key }}" in
+          linux-x64|darwin-x64) cpu_flags=(-DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON) ;;
+        esac
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+          -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DGGML_CCACHE=OFF "${cpu_flags[@]}" ${{ matrix.gpu }}
+    - name: Configure (Release, static, MSVC)
+      if: runner.os == 'Windows'
+      run: cmake -B build -A x64 -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DGGML_CCACHE=OFF -DGGML_AVX=ON
+        -DGGML_AVX2=ON -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+    - name: Build
+      run: cmake --build build --target backtrack-surveil --config Release -j 4
+    - name: Locate binary
+      id: locate
+      run: |
+        for cand in "build/${{ matrix.bin-name }}" "build/Release/${{ matrix.bin-name }}"; do
+          if [ -f "$cand" ]; then
+            echo "path=$cand" >> "$GITHUB_OUTPUT"
+            echo "found $cand"
+            exit 0
           fi
-          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::invalid release tag"; exit 1; }
-          git rev-parse -q --verify "refs/tags/$tag^{commit}" >/dev/null || { echo "::error::release tag does not exist"; exit 1; }
-          version=$(sed -n '/^project(backtrack$/,/^)/s/^[[:space:]]*VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
-          [ "${tag#v}" = "$version" ] || { echo "::error::tag and project version differ"; exit 1; }
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      # Fetches and verifies the pinned ggml commit (scripts/install-vendor.js).
-      - name: Install ggml
-        run: npm ci
-
-      - name: Configure (Release, static)
-        if: runner.os != 'Windows'
-        run: |
-          cpu_flags=()
-          case "${{ matrix.asset-key }}" in
-            linux-x64|darwin-x64) cpu_flags=(-DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON) ;;
-          esac
-          cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
-            -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DGGML_CCACHE=OFF "${cpu_flags[@]}" ${{ matrix.gpu }}
-
-      # MSVC: let CMake pick the newest Visual Studio generator (pinning one
-      # broke an Onyx Engine release when the runner image moved on).
-      - name: Configure (Release, static, MSVC)
-        if: runner.os == 'Windows'
-        run: cmake -B build -A x64 -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DGGML_CCACHE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
-
-      - name: Build
-        run: cmake --build build --target backtrack-surveil --config Release -j 4
-
-      # Multi-config generators put the binary in build/Release/.
-      - name: Locate binary
-        id: locate
-        run: |
-          for cand in "build/${{ matrix.bin-name }}" "build/Release/${{ matrix.bin-name }}"; do
-            if [ -f "$cand" ]; then
-              echo "path=$cand" >> "$GITHUB_OUTPUT"
-              echo "found $cand"
-              exit 0
-            fi
-          done
-          echo "::error::${{ matrix.bin-name }} not found"; exit 1
-
-      - name: Sanity check (--version)
-        run: '"${{ steps.locate.outputs.path }}" --version'
-
-      # The released binary runs the whole smoke test, with the drum model it ships with.
-      - name: Smoke test
-        run: python scripts/smoke-test.py "${{ steps.locate.outputs.path }}"
-
-      - name: Run the shipped models
-        run: |
-          python scripts/make-test-audio.py test-audio
-          for model in weights/*.gguf; do
-            "${{ steps.locate.outputs.path }}" test-audio/drums.wav --stem drums --model "$model" -o drums.mid --json - --quiet > out.json
-            python -c "import json,sys; d=json.load(open('out.json')); sys.exit(0 if d['notes'] else 'no notes from $model')"
-          done
-
-      - name: Check release dynamic dependencies
-        if: runner.os != 'Windows'
-        run: |
-          if [ "${{ runner.os }}" = Linux ]; then
-            ldd '${{ steps.locate.outputs.path }}' | tee dependencies.txt
-            if grep -Ei 'libgomp|libssl|libcrypto|not found' dependencies.txt; then
-              echo "::error::unexpected release dependency"; exit 1
-            fi
-          else
-            otool -L '${{ steps.locate.outputs.path }}' | tee dependencies.txt
-            if grep -Ei '/opt/homebrew|/usr/local|libgomp|libssl|libcrypto' dependencies.txt; then
-              echo "::error::unexpected release dependency"; exit 1
-            fi
+        done
+        echo "::error::${{ matrix.bin-name }} not found"; exit 1
+    - name: Sanity check (--version)
+      run: '"${{ steps.locate.outputs.path }}" --version'
+    - name: Smoke test
+      run: python scripts/smoke-test.py "${{ steps.locate.outputs.path }}"
+    - name: Run the shipped models
+      run: |
+        python scripts/make-test-audio.py test-audio
+        for model in weights/*.gguf; do
+          "${{ steps.locate.outputs.path }}" test-audio/drums.wav --stem drums --model "$model" -o drums.mid --json - --quiet > out.json
+          python -c "import json,sys; d=json.load(open('out.json')); sys.exit(0 if d['notes'] else 'no notes from $model')"
+        done
+    - name: Check release dynamic dependencies
+      if: runner.os != 'Windows'
+      run: |
+        if [ "${{ runner.os }}" = Linux ]; then
+          ldd '${{ steps.locate.outputs.path }}' | tee dependencies.txt
+          if grep -Ei 'libgomp|libssl|libcrypto|not found' dependencies.txt; then
+            echo "::error::unexpected release dependency"; exit 1
           fi
-
-      - name: Package
-        run: |
-          name="backtrack-surveil-${{ steps.tag.outputs.tag }}-${{ matrix.asset-key }}.${{ matrix.archive-ext }}"
-          stage=$(mktemp -d)
-          cp "${{ steps.locate.outputs.path }}" "$stage/${{ matrix.bin-name }}"
-          cp LICENSE "$stage/LICENSE"
-          cp third_party/cpp-httplib/LICENSE "$stage/LICENSE-cpp-httplib"
-          cp third_party/nlohmann/LICENSE.MIT "$stage/LICENSE-nlohmann-json"
-          cp third_party/dr_libs/LICENSE "$stage/LICENSE-dr_libs"
-          cp node_modules/@jxburros/ggml-source/LICENSE "$stage/LICENSE-ggml"
-          cp ui/fonts/OFL-*.txt ui/fonts/LICENSE-permanentmarker.txt "$stage/"
-          chmod +x "$stage/${{ matrix.bin-name }}"
-          files=$(cd "$stage" && ls)
-          if [ "${{ matrix.archive-ext }}" = zip ]; then
-            (cd "$stage" && 7z a -tzip "$OLDPWD/$name" $files)
-          else
-            tar -czf "$name" -C "$stage" $files
+        else
+          otool -L '${{ steps.locate.outputs.path }}' | tee dependencies.txt
+          if grep -Ei '/opt/homebrew|/usr/local|libgomp|libssl|libcrypto' dependencies.txt; then
+            echo "::error::unexpected release dependency"; exit 1
           fi
-          echo "ARCHIVE=$name" >> "$GITHUB_ENV"
-
-      - name: Upload archive
-        uses: actions/upload-artifact@v4
-        with:
-          name: backtrack-surveil-${{ matrix.asset-key }}
-          path: ${{ env.ARCHIVE }}
-          if-no-files-found: error
-
-  # The WebAssembly build (Song Deck vendors it), checked against the native
-  # binary like in CI.
+        fi
+    - name: Package
+      run: |
+        name="backtrack-surveil-${{ steps.tag.outputs.tag }}-${{ matrix.asset-key }}.${{ matrix.archive-ext }}"
+        stage=$(mktemp -d)
+        cp "${{ steps.locate.outputs.path }}" "$stage/${{ matrix.bin-name }}"
+        cp LICENSE "$stage/LICENSE"
+        cp third_party/cpp-httplib/LICENSE "$stage/LICENSE-cpp-httplib"
+        cp third_party/nlohmann/LICENSE.MIT "$stage/LICENSE-nlohmann-json"
+        cp third_party/dr_libs/LICENSE "$stage/LICENSE-dr_libs"
+        cp node_modules/@jxburros/ggml-source/LICENSE "$stage/LICENSE-ggml"
+        cp ui/fonts/OFL-*.txt ui/fonts/LICENSE-permanentmarker.txt "$stage/"
+        chmod +x "$stage/${{ matrix.bin-name }}"
+        files=$(cd "$stage" && ls)
+        if [ "${{ matrix.archive-ext }}" = zip ]; then
+          (cd "$stage" && 7z a -tzip "$OLDPWD/$name" $files)
+        else
+          tar -czf "$name" -C "$stage" $files
+        fi
+        echo "ARCHIVE=$name" >> "$GITHUB_ENV"
+    - name: Upload archive
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: backtrack-surveil-${{ matrix.asset-key }}
+        path: ${{ env.ARCHIVE }}
+        if-no-files-found: error
+    needs:
+    - plan
+    if: needs.plan.outputs.selected == 'true' && fromJSON(needs.plan.outputs.apps)['backtrack'].selected
+    env:
+      RELEASE_TAG: ${{ fromJSON(needs.plan.outputs.apps)['backtrack'].tag }}
+      RELEASE_VERSION: ${{ fromJSON(needs.plan.outputs.apps)['backtrack'].version }}
+      RELEASE_SOURCE_SHA: ${{ needs.plan.outputs.sha }}
+    permissions:
+      contents: read
   wasm:
     name: build (wasm)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install ggml and Emscripten
-        run: |
-          npm ci
-          bash scripts/install-emsdk.sh "$RUNNER_TEMP/emsdk"
-
-      - name: Build (wasm and native)
-        run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_CCACHE=OFF
-          cmake --build build --target backtrack-surveil -j 4
-          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
-          emcmake cmake -B build-wasm -DCMAKE_BUILD_TYPE=Release
-          cmake --build build-wasm -j 4
-
-      - name: Check against the native binary
-        run: |
-          python3 scripts/make-test-audio.py test-audio
-          node wasm/test.mjs build-wasm test-audio build/backtrack-surveil
-
-      - name: Package
-        env:
-          DISPATCH_TAG: ${{ inputs.tag }}
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            tag="$DISPATCH_TAG"
-          else
-            tag="${GITHUB_REF#refs/tags/}"
-          fi
-          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::invalid release tag"; exit 1; }
-          name="backtrack-surveil-wasm-$tag.zip"
-          stage=$(mktemp -d)
-          cp build-wasm/surveil.mjs build-wasm/surveil-core.mjs build-wasm/surveil-core.wasm wasm/README.md "$stage/"
-          cp LICENSE "$stage/LICENSE"
-          cp third_party/nlohmann/LICENSE.MIT "$stage/LICENSE-nlohmann-json"
-          cp third_party/dr_libs/LICENSE "$stage/LICENSE-dr_libs"
-          cp node_modules/@jxburros/ggml-source/LICENSE "$stage/LICENSE-ggml"
-          (cd "$stage" && zip -q "$OLDPWD/$name" *)
-          echo "ARCHIVE=$name" >> "$GITHUB_ENV"
-
-      - name: Upload archive
-        uses: actions/upload-artifact@v4
-        with:
-          name: backtrack-surveil-wasm
-          path: ${{ env.ARCHIVE }}
-          if-no-files-found: error
-
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      with:
+        ref: ${{ needs.plan.outputs.sha }}
+        persist-credentials: false
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      with:
+        node-version: '20'
+    - name: Install ggml and Emscripten
+      run: |
+        npm ci
+        bash scripts/install-emsdk.sh "$RUNNER_TEMP/emsdk"
+    - name: Build (wasm and native)
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_CCACHE=OFF
+        cmake --build build --target backtrack-surveil -j 4
+        source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+        emcmake cmake -B build-wasm -DCMAKE_BUILD_TYPE=Release
+        cmake --build build-wasm -j 4
+    - name: Check against the native binary
+      run: |
+        python3 scripts/make-test-audio.py test-audio
+        node wasm/test.mjs build-wasm test-audio build/backtrack-surveil
+    - name: Package
+      env:
+        DISPATCH_TAG: ${{ fromJSON(needs.plan.outputs.apps)['backtrack'].tag }}
+      run: |
+        tag="$RELEASE_TAG"
+        [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::invalid release tag"; exit 1; }
+        name="backtrack-surveil-wasm-$tag.zip"
+        stage=$(mktemp -d)
+        cp build-wasm/surveil.mjs build-wasm/surveil-core.mjs build-wasm/surveil-core.wasm wasm/README.md "$stage/"
+        cp LICENSE "$stage/LICENSE"
+        cp third_party/nlohmann/LICENSE.MIT "$stage/LICENSE-nlohmann-json"
+        cp third_party/dr_libs/LICENSE "$stage/LICENSE-dr_libs"
+        cp node_modules/@jxburros/ggml-source/LICENSE "$stage/LICENSE-ggml"
+        (cd "$stage" && zip -q "$OLDPWD/$name" *)
+        echo "ARCHIVE=$name" >> "$GITHUB_ENV"
+    - name: Upload archive
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: backtrack-surveil-wasm
+        path: ${{ env.ARCHIVE }}
+        if-no-files-found: error
+    needs:
+    - plan
+    if: needs.plan.outputs.selected == 'true' && fromJSON(needs.plan.outputs.apps)['backtrack'].selected
+    env:
+      RELEASE_TAG: ${{ fromJSON(needs.plan.outputs.apps)['backtrack'].tag }}
+      RELEASE_VERSION: ${{ fromJSON(needs.plan.outputs.apps)['backtrack'].version }}
+      RELEASE_SOURCE_SHA: ${{ needs.plan.outputs.sha }}
+    permissions:
+      contents: read
   desktop:
     uses: ./.github/workflows/desktop.yml
     with:
-      ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-
-  # All-or-nothing on purpose for the archives, as in Onyx Engine: Song Deck
-  # pins one tag and derives each asset name from the platform, so a partial
-  # release would install on some machines and 404 on others. The desktop
-  # installers are not part of that: if they fail, the archives still go out
-  # and the job says so. Re-run with workflow_dispatch against the same tag
-  # after a fix; the release is updated in place.
+      ref: ${{ needs.plan.outputs.sha }}
+    needs:
+    - plan
+    if: needs.plan.outputs.selected == 'true' && fromJSON(needs.plan.outputs.apps)['backtrack'].selected
   release:
     name: publish release
-    needs: [build, wasm, desktop]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.wasm.result == 'success' }}
+    needs:
+    - plan
+    - build
+    - wasm
+    - desktop
+    if: needs.plan.outputs.selected == 'true' && fromJSON(needs.plan.outputs.apps)['backtrack'].selected
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-          fetch-depth: 0
-
-      - name: Resolve tag
-        id: tag
-        env:
-          DISPATCH_TAG: ${{ inputs.tag }}
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            tag="$DISPATCH_TAG"
-          else
-            tag="${GITHUB_REF#refs/tags/}"
-          fi
-          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::invalid release tag"; exit 1; }
-          git rev-parse -q --verify "refs/tags/$tag^{commit}" >/dev/null || { echo "::error::release tag does not exist"; exit 1; }
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-
-      - name: Download all archives
-        uses: actions/download-artifact@v4
-        with:
-          path: dist
-          pattern: backtrack-surveil-*
-          merge-multiple: true
-
-      - name: Download the desktop installers
-        if: needs.desktop.result == 'success'
-        uses: actions/download-artifact@v4
-        with:
-          path: dist
-          pattern: desktop-*
-          merge-multiple: true
-
-      - name: Note missing desktop installers
-        if: needs.desktop.result != 'success'
-        run: echo "::warning::desktop installers failed to build; releasing the archives without them"
-
-      - name: Add the models
-        run: cp weights/*.gguf dist/
-
-      - name: Checksums
-        run: |
-          cd dist
-          sha256sum backtrack-surveil-* *.gguf $(ls BackTrack-* 2>/dev/null) > checksums.txt
-          cat checksums.txt
-
-      - name: Create/update GitHub Release
-        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
-        with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          generate_release_notes: true
-          files: |
-            dist/backtrack-surveil-*
-            dist/BackTrack-*
-            dist/*.gguf
-            dist/checksums.txt
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      with:
+        ref: ${{ needs.plan.outputs.sha }}
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Resolve tag
+      id: tag
+      run: |
+        echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+        echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+      shell: bash
+    - name: Download all archives
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        path: dist
+        pattern: backtrack-surveil-*
+        merge-multiple: true
+    - name: Download the desktop installers
+      if: needs.desktop.result == 'success'
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        path: dist
+        pattern: desktop-*
+        merge-multiple: true
+    - name: Add the models
+      run: cp weights/*.gguf dist/
+    - name: Checksums
+      run: |
+        cd dist
+        sha256sum backtrack-surveil-* *.gguf $(ls BackTrack-* 2>/dev/null) > checksums.txt
+        cat checksums.txt
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      with:
+        repository: JX-Holdings-LLC/release-infrastructure
+        ref: 181636b602317ba703c3f4bf12775c34560f4efb
+        path: .toolkit
+        persist-credentials: false
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      with:
+        node-version: 24
+    - name: Stage the complete configured release inventory
+      shell: bash
+      env:
+        RELEASE_APP: backtrack
+      run: node .toolkit/src/release.mjs stage --app "$RELEASE_APP" --from dist --bundle unified-bundle --sha "$RELEASE_SOURCE_SHA"
+    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: bundle-backtrack
+        path: unified-bundle
+        if-no-files-found: error
+    env:
+      RELEASE_TAG: ${{ fromJSON(needs.plan.outputs.apps)['backtrack'].tag }}
+      RELEASE_VERSION: ${{ fromJSON(needs.plan.outputs.apps)['backtrack'].version }}
+      RELEASE_SOURCE_SHA: ${{ needs.plan.outputs.sha }}
+  publish-backtrack:
+    needs:
+    - plan
+    - release
+    if: needs.plan.outputs.selected == 'true' && fromJSON(needs.plan.outputs.apps)['backtrack'].selected
+    uses: JX-Holdings-LLC/release-infrastructure/.github/workflows/finish.yml@181636b602317ba703c3f4bf12775c34560f4efb
+    permissions:
+      contents: write
+    with:
+      toolkit-ref: 181636b602317ba703c3f4bf12775c34560f4efb
+      source-sha: ${{ needs.plan.outputs.sha }}
+      app: backtrack
+      security: standard
+      artifact: bundle-backtrack
+      dry-run: ${{ inputs.dry_run }}

@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "bumpPolicy": "every-main-change",
+  "apps": {
+    "backtrack": {
+      "tagPrefix": "v",
+      "paths": [
+        "**"
+      ],
+      "versionFiles": [
+        {
+          "path": "package.json",
+          "format": "json",
+          "key": "version"
+        },
+        {
+          "path": "package-lock.json",
+          "format": "json",
+          "key": "version"
+        },
+        {
+          "path": "desktop/package.json",
+          "format": "json",
+          "key": "version"
+        },
+        {
+          "path": "package-lock.json",
+          "format": "json",
+          "key": "packages..version"
+        }
+      ],
+      "notes": ".release/notes/{app}/{version}.md",
+      "assets": [
+        "BackTrack-{version}-darwin-arm64.dmg",
+        "BackTrack-{version}-darwin-x64.dmg",
+        "BackTrack-{version}-linux-x64.AppImage",
+        "BackTrack-{version}-linux-x64.deb",
+        "BackTrack-{version}-win32-x64-setup.exe",
+        "BackTrack-Surveil-{version}-darwin-arm64.dmg",
+        "BackTrack-Surveil-{version}-darwin-x64.dmg",
+        "BackTrack-Surveil-{version}-linux-x64.AppImage",
+        "BackTrack-Surveil-{version}-linux-x64.deb",
+        "BackTrack-Surveil-{version}-win32-x64-setup.exe",
+        "backtrack-surveil-v{version}-darwin-arm64.tar.gz",
+        "backtrack-surveil-v{version}-darwin-x64.tar.gz",
+        "backtrack-surveil-v{version}-linux-x64.tar.gz",
+        "backtrack-surveil-v{version}-win32-x64.zip",
+        "backtrack-surveil-wasm-v{version}.zip",
+        "surveil-drums-0.1.0.gguf"
+      ],
+      "security": "standard",
+      "checksumFile": "checksums.txt",
+      "legacyLatest": true
+    }
+  }
+}
