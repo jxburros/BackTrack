@@ -18,7 +18,8 @@ with weights in GGUF; no Python at run time.
 > songs), and runs in WebAssembly inside Song Deck ([wasm/](wasm/README.md)). Bass, melody and
 > vocal models train with `training.train_pitched`; until they are trained, those stems use the
 > placeholder model (hand-set weights). Training runs from `training/`, at home too
-> ([docs/training-at-home.md](docs/training-at-home.md)). See [the plan](docs/plans/overall.md).
+> ([docs/training-at-home.md](docs/training-at-home.md)). See [the plan](docs/plans/overall.md)
+> and [the roadmap](ROADMAP.md).
 
 ## Quick start
 
