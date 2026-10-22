@@ -67,7 +67,8 @@
     "skip_if_unchanged": true,
     "egmd": null,
     "egmd_limit": null,
-    "extra_args": []
+    "extra_args": [],
+    "augment": { "use": [], "copies": 1, "seed": 0, "noise_dir": null }
   },
 
   "evaluate": {
@@ -76,7 +77,8 @@
     "previous_best": true,
     "songdeck_baseline": true,
     "serve_port": 0,
-    "songdeck_extra_args": []
+    "songdeck_extra_args": [],
+    "bad_recordings": { "dataset": null, "audio": "mix", "split": "all" }
   },
 
   "promote": { "metric": "mean_class_f", "min_improvement": 0.0, "require_parity": true },

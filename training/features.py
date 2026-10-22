@@ -4,10 +4,14 @@ once per item keeps training epochs to the model's own cost.
 The cache holds the extended transform every harmonic channel reads
 (frames x 401 bins at the defaults, float16, memory-mapped), not the 8 x 264
 stack: the channels are shifted reads of it, so this is exact and 5.3 times
-smaller (about 0.25 GB per hour of audio)."""
+smaller (about 0.25 GB per hour of audio).
+
+Degraded copies (training.augment, `--augment`) are made on the waveform here, before the
+HCQT, and cached beside the clean features under keys of their own (prepare_copies)."""
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import os
 from concurrent.futures import ProcessPoolExecutor
@@ -36,22 +40,44 @@ def item_mono(item: Item, rate: int) -> np.ndarray:
     return resample(total, src_rate, rate)
 
 
-def cache_key(item: Item, fe: FrontEnd) -> str:
+def cache_key(item: Item, fe: FrontEnd, aug=None, copy: int = 0) -> str:
+    """The clean features' key (the front end and the files); with aug (a training.augment.Augment),
+    the key of degraded copy number `copy`: the same plus the item, the spec, its seed and the copy,
+    prefixed "aug-" so it never names a clean entry."""
     h = hashlib.sha1(fe.key().encode())
     for f in item.audio:
         st = os.stat(f)
         h.update(f"{Path(f).resolve()}|{st.st_size}|{int(st.st_mtime)}".encode())
-    return h.hexdigest()[:20]
+    if aug is None:
+        return h.hexdigest()[:20]
+    h.update(f"|augment|{item.id}|{aug.key(copy)}".encode())
+    return "aug-" + h.hexdigest()[:20]
 
 
 def _compute(args):
-    item, fe, path = args
+    item, fe, path, *copy = args  # copy: (augment spec, copy number) for a degraded copy
     if not path.exists():
-        ext = hcqt_for(fe).extended(item_mono(item, fe.sample_rate))
+        mono = item_mono(item, fe.sample_rate)
+        if copy:
+            mono = copy[0].degrade(mono, fe.sample_rate, item.id, copy[1])
+        ext = hcqt_for(fe).extended(mono)
         tmp = path.with_suffix(".tmp.npy")
         np.save(tmp, ext.astype(np.float16))
         tmp.replace(path)
     return path
+
+
+def _run(jobs, workers: int, what: str) -> None:
+    todo = [j for j in jobs if not j[2].exists()]
+    if todo:
+        workers = workers or min(len(todo), os.cpu_count() or 1)
+        print(f"computing {what} for {len(todo)} of {len(jobs)} items ({workers} processes)", flush=True)
+        if workers > 1:
+            with ProcessPoolExecutor(workers) as ex:
+                list(ex.map(_compute, todo, chunksize=1))
+        else:
+            for j in todo:
+                _compute(j)
 
 
 def prepare(items: list[Item], fe: FrontEnd, cache_dir, workers: int = 0) -> list[Path]:
@@ -59,17 +85,23 @@ def prepare(items: list[Item], fe: FrontEnd, cache_dir, workers: int = 0) -> lis
     cache = Path(cache_dir) / f"hcqt-ext-{fe.key()}"
     cache.mkdir(parents=True, exist_ok=True)
     jobs = [(it, fe, cache / f"{cache_key(it, fe)}.npy") for it in items]
-    todo = [j for j in jobs if not j[2].exists()]
-    if todo:
-        workers = workers or min(len(todo), os.cpu_count() or 1)
-        print(f"computing features for {len(todo)} of {len(jobs)} items ({workers} processes)", flush=True)
-        if workers > 1:
-            with ProcessPoolExecutor(workers) as ex:
-                list(ex.map(_compute, todo, chunksize=1))
-        else:
-            for j in todo:
-                _compute(j)
+    _run(jobs, workers, "features")
     return [j[2] for j in jobs]
+
+
+def prepare_copies(items: list[Item], fe: FrontEnd, cache_dir, aug, workers: int = 0) -> tuple[list[Item], list[Path]]:
+    """aug.copies degraded copies of each item (training.augment) and their feature files, computed
+    once like the clean ones and kept beside them (aug-*.npy). A copy is the item with the same
+    labels, accepted regions and split: no degradation moves the audio in time."""
+    cache = Path(cache_dir) / f"hcqt-ext-{fe.key()}"
+    cache.mkdir(parents=True, exist_ok=True)
+    jobs, copies = [], []
+    for it in items:
+        for k in range(aug.copies):
+            jobs.append((it, fe, cache / f"{cache_key(it, fe, aug, k)}.npy", aug, k))
+            copies.append(dataclasses.replace(it, id=f"{it.id}:aug{k + 1}"))
+    _run(jobs, workers, f"degraded copies ({aug.describe()})")
+    return copies, [j[2] for j in jobs]
 
 
 class Features:

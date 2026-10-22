@@ -2,7 +2,7 @@
 
     python3 -m training.train_pitched --data DIR [--data DIR2] --stem bass \\
         --out surveil-bass-0.1.0.gguf [--epochs 30] [--minutes 0] [--audio stem,separated,performed] \\
-        [--device auto] [--patience 0] [--resume]
+        [--device auto] [--patience 0] [--resume] [--augment room,noise,mic,codec --augment-copies 1]
 
 Data: Song Deck dataset directories (`npm run dataset:render`, with the
 stems of `--stem` written: `--only-stems bass --separate` for bass), train
@@ -13,7 +13,8 @@ drum model; each step trains on random crops with the receptive radius as
 context. The targets are the four heads of the pitched graph
 (docs/gguf-metadata.md): note (frames a note sounds), onset and offset (a
 Gaussian around each start and end), and contour (the pitch curve, with
-bends, at 3 bins per semitone). The best epoch on the valid split (performed audio: ACE-Step takes, trained and
+bends, at 3 bins per semitone). `--augment` adds degraded copies of the
+training items (worse recordings; training/augment.py), as for drums. The best epoch on the valid split (performed audio: ACE-Step takes, trained and
 scored only inside their accepted windows, as for drums) (note F:
 onset within 50 ms at the same pitch, notes picked as the binary picks them)
 is exported. A .pt checkpoint next to --out allows --resume;
@@ -36,7 +37,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from . import datasets, evaluate, export, features
+from . import augment, datasets, evaluate, export, features
 from .frontend import FrontEnd
 from .model import SurveilCNN
 from .train_drums import CPU_BATCH, GPU_BATCH, _atomic, prefetch, to_device
@@ -179,20 +180,26 @@ def run(a) -> dict:
     if not train:
         raise SystemExit(f"no training items with {'/'.join(stems)} notes (render the dataset with those stems)")
     cache = evaluate.default_cache(a)
+    aug = augment.from_args(a)  # None when off
     t0 = time.time()
     train_paths = features.prepare(train, fe, cache)
     valid_paths = features.prepare(valid, fe, cache)
+    copies, copy_paths = features.prepare_copies(train, fe, cache, aug) if aug else ([], [])
     print(f"features ready in {time.time() - t0:.1f} s (cache {cache})", flush=True)
+    if aug:
+        print(f"augment: {aug.copies} degraded {'copy' if aug.copies == 1 else 'copies'} of each of {len(train)} training "
+              f"items ({aug.describe()}; seed {aug.seed}); the clean audio is drawn 1 time in {aug.copies + 1}", flush=True)
 
     layout = json.loads(a.layout) if a.layout else PITCHED_LAYOUT
     model = build(fe, layout).to(device)
     r = model.receptive_radius
     n_out, bps = model.n_outputs, fe.bins_per_semitone
     print(f"model: {model.n_params()} parameters, receptive radius {r} frames ({1e3 * r / fe.frame_rate:.0f} ms)")
-    feats = [features.load(p, fe) for p in train_paths]
-    notes = [i.notes for i in train]
-    masks = [features.region_mask(i.regions, f.shape[1], fe.frame_rate) for i, f in zip(train, feats)]
-    frames = int(sum(f.shape[1] if m is None else m.sum() for f, m in zip(feats, masks)))
+    # Degraded copies are more items with their originals' notes; an epoch stays one pass over the clean frames.
+    feats = [features.load(p, fe) for p in train_paths + copy_paths]
+    notes = [i.notes for i in train + copies]
+    masks = [features.region_mask(i.regions, f.shape[1], fe.frame_rate) for i, f in zip(train + copies, feats)]
+    frames = int(sum(f.shape[1] if m is None else m.sum() for f, m in zip(feats[: len(train)], masks)))
     steps = a.steps_per_epoch or max(1, frames // (a.crop * batch))
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=1e-4)
     total = steps * a.epochs
@@ -259,7 +266,7 @@ def run(a) -> dict:
 
     model.load_state_dict(best[2])
     model.cpu()
-    sources = sorted({i.source for i in train + valid}) + a.source
+    sources = sorted({i.source for i in train + valid}) + a.source + (augment.sources(aug) if aug else [])
     training = {"epochs": epochs_done, "best_epoch": best[1], "valid_note_f": best[0], "train_frames": frames,
                 "train_items": len(train), "valid_items": len(valid), "stems": stems, "crop": a.crop, "batch": batch,
                 "lr": a.lr, "pos_weight": a.pos_weight, "offset_weight": a.offset_weight, "gain_db": a.gain_db,
@@ -272,6 +279,8 @@ def run(a) -> dict:
                                  "min_agreement": a.min_agreement, "min_offset_strength": a.min_offset_strength,
                                  "rejected": {k: stats[k] for k in ("not_judged", "weak_offset", "no_window",
                                                                     "missing_audio")}}
+    if aug:
+        training["augment"] = aug.record(len(copies))
     _atomic(out, lambda p: export.save(p, model, fe, name=a.name or f"Surveil {source}", version=a.version,
                                        license=a.license, sources=sources, stems=stems, pitch_min=PITCH_MIN,
                                        extra={"audio.training": json.dumps(training)}))
@@ -308,6 +317,7 @@ def main(argv=None):
     ap.add_argument("--pos-weight", type=float, default=4.0, help="weight of positive targets in the loss")
     ap.add_argument("--offset-weight", type=float, default=0.5, help="weight of the offset head's loss")
     ap.add_argument("--gain-db", type=float, default=8.0, help="random level change, +-dB (0: off)")
+    augment.add_args(ap)
     ap.add_argument("--layout", default=None, help="JSON model layout (default: PITCHED_LAYOUT)")
     ap.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"])
     ap.add_argument("--threads", type=int, default=0)

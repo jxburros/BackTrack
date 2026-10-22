@@ -1,7 +1,8 @@
 # BackTrack CI: build against the pinned ggml, run the unit tests and the
 # end-to-end smoke test on Linux, macOS and Windows; then, on Linux, the
-# training code's parity check, few-second toy drum and bass training runs, and the
-# WebAssembly build checked against the native binary.
+# training code's parity check, few-second toy drum and bass training runs, the
+# performed-audio and augmentation checks, and the WebAssembly build checked against
+# the native binary.
 name: ci
 
 on:
@@ -126,6 +127,9 @@ jobs:
 
       - name: Performed audio (shifted labels, accepted windows, resume; about 20 s)
         run: python -m training.check_performed --work "$RUNNER_TEMP/perf"
+
+      - name: Degradation augmentation (labels in place, deterministic copies, noise levels, off unchanged; about 90 s)
+        run: python -m training.check_augment --work "$RUNNER_TEMP/augment"
 
   # wasm/: the WebAssembly build must give the native binary's notes.
   wasm:

@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Degradation augmentation** (`training/augment.py`): `--augment room,noise,mic,compress,clip,wow,codec`
+  (or `all`) and `--augment-copies N` on `train_drums` and `train_pitched` train on degraded copies
+  of every training item as well as the clean ones, so models also work on phone, live and
+  rehearsal recordings, old tapes and low-bitrate MP3s: a synthetic room, noise 10–30 dB below the
+  item (white, pink, hum, room tone, crowd, or your own recordings), a phone's mic, heavy
+  compression and clipping, wow and flutter, and MP3 or Opus through ffmpeg (skipped with a warning
+  without it). Copies are made once before the feature cache, each under its own key, and keep the
+  labels' timing (checked by `training/check_augment.py` in CI). Off by default: runs without it
+  are unchanged. The pipeline's `train.augment` turns it on, and `evaluate.bad_recordings` scores a
+  set of real bad recordings beside the clean test split in the report.
+
 ### Release infrastructure migration — 2026-10-20
 
 - Adopt the unified release manifest, version-advance validation, manual main-only planning, complete artifact staging, and verified draft publisher. Preserve local packaging, existing updater trust, and distribution identities.
