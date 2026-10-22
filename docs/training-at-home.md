@@ -541,6 +541,30 @@ Outside datasets with licences that allow this (E-GMD, Groove, Slakh2100, ...) a
 downloads and imports each one once. [training-data.md](training-data.md) lists them all, with
 their licences, sizes and what each helps.
 
+### Worse recordings: phone, live, old tapes
+
+Song Deck's renders and ACE-Step's covers are clean. To make the model work on worse recordings
+too, have training add degraded copies of the songs (a room, background noise, a phone's mic, MP3
+or Opus, compression and clipping, a little wow and flutter) on top of the clean ones:
+
+```json
+"train": { "augment": { "use": "all", "copies": 1 } }
+```
+
+Each copy is made once and cached next to the clean features, so it costs as much disk again as
+the training songs' feature cache (about 3.5 GB per copy for the default 400 songs with one take
+each) and two to four times as long to compute, once; epochs take no longer. The MP3 and Opus
+part needs ffmpeg on PATH (Windows: `winget install --id Gyan.FFmpeg -e`; macOS:
+`brew install ffmpeg`; Linux: `sudo apt install ffmpeg`). Without it, training prints one warning
+and does the rest. Details:
+[training/README.md](../training/README.md#worse-recordings-degradation-augmentation).
+
+To see whether it helps, record a few of your rendered songs played on a speaker with your phone
+and give the pipeline them as a test set (`evaluate.bad_recordings.dataset`;
+[how](training-data.md#6-worse-recordings-noise-and-degradation)): the report then shows the model
+and the previous best on them beside the clean test songs, and promotion still goes by the clean
+songs.
+
 ### Linux: cron
 
 `crontab -e`, paste the two lines printed (the `PATH` line and the schedule line), save. The

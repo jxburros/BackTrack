@@ -2,7 +2,7 @@
 
     python3 -m training.train_drums --data DIR [--data DIR2] [--egmd EGMD_ROOT] \\
         --out surveil-drums-0.1.0.gguf [--epochs 30] [--minutes 0] [--audio stem,separated,performed] \\
-        [--device auto] [--patience 0] [--resume]
+        [--device auto] [--patience 0] [--resume] [--augment room,noise,mic,codec --augment-copies 1]
 
 Data: Song Deck dataset directories (train / valid splits from the
 manifest) and optionally E-GMD. Features are computed once and cached
@@ -10,6 +10,8 @@ manifest) and optionally E-GMD. Features are computed once and cached
 with the receptive radius as context, exactly as the binary runs chunks.
 Performed audio (ACE-Step takes) is trained only on its accepted windows:
 crops are drawn around accepted frames and the loss is masked outside them.
+`--augment` adds degraded copies of the training items (worse recordings:
+room, noise, mic, codec, ...; training/augment.py), cached like the rest.
 The best epoch on the valid split (mean class onset F at +-50 ms, hits
 picked as the binary picks them) is exported, with audio.sources listing
 every dataset used. A .pt checkpoint next to --out (written after every
@@ -34,7 +36,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from . import datasets, evaluate, export, features
+from . import augment, datasets, evaluate, export, features
 from .datasets import summary
 from .frontend import FrontEnd
 from .model import DRUM_CLASSES, DRUM_LAYOUT, DRUM_NOTES, SurveilCNN
@@ -165,19 +167,25 @@ def run(a) -> dict:
     if not train:
         raise SystemExit("no training items")
     cache = evaluate.default_cache(a)
+    aug = augment.from_args(a)  # None when off
     t0 = time.time()
     train_paths = features.prepare(train, fe, cache)
     valid_paths = features.prepare(valid, fe, cache)
+    copies, copy_paths = features.prepare_copies(train, fe, cache, aug) if aug else ([], [])
     print(f"features ready in {time.time() - t0:.1f} s (cache {cache})", flush=True)
+    if aug:
+        print(f"augment: {aug.copies} degraded {'copy' if aug.copies == 1 else 'copies'} of each of {len(train)} training "
+              f"items ({aug.describe()}; seed {aug.seed}); the clean audio is drawn 1 time in {aug.copies + 1}", flush=True)
 
     layout = json.loads(a.layout) if a.layout else DRUM_LAYOUT
     model = SurveilCNN.drums(len(fe.harmonics), fe.n_bins, len(DRUM_CLASSES), layout).to(device)
     r = model.receptive_radius
     print(f"model: {model.n_params()} parameters, receptive radius {r} frames ({1e3 * r / fe.frame_rate:.0f} ms)")
-    feats = [features.load(p, fe) for p in train_paths]
-    targets = [features.onset_targets(i.hits, f.shape[1], len(DRUM_CLASSES), fe.frame_rate) for i, f in zip(train, feats)]
-    masks = [features.region_mask(i.regions, f.shape[1], fe.frame_rate) for i, f in zip(train, feats)]
-    frames = int(sum(f.shape[1] if m is None else m.sum() for f, m in zip(feats, masks)))
+    # Degraded copies are more items with their originals' labels; an epoch stays one pass over the clean frames.
+    feats = [features.load(p, fe) for p in train_paths + copy_paths]
+    targets = [features.onset_targets(i.hits, f.shape[1], len(DRUM_CLASSES), fe.frame_rate) for i, f in zip(train + copies, feats)]
+    masks = [features.region_mask(i.regions, f.shape[1], fe.frame_rate) for i, f in zip(train + copies, feats)]
+    frames = int(sum(f.shape[1] if m is None else m.sum() for f, m in zip(feats[: len(train)], masks)))
     counts = np.bincount([c for i in train for _, c in datasets.in_regions(i.hits, i.regions)],
                          minlength=len(DRUM_CLASSES)).astype(np.float64)
     balance = np.clip((np.median(counts) / np.maximum(counts, 1)) ** a.class_balance, 0.5, 4.0) if a.class_balance else np.ones(len(counts))
@@ -257,7 +265,7 @@ def run(a) -> dict:
 
     model.load_state_dict(best[2])
     model.cpu()
-    sources = sorted({i.source for i in train + valid}) + a.source
+    sources = sorted({i.source for i in train + valid}) + a.source + (augment.sources(aug) if aug else [])
     training = {"epochs": epochs_done, "best_epoch": best[1], "valid_mean_class_f": best[0], "train_frames": frames,
                 "train_items": len(train), "valid_items": len(valid), "crop": a.crop, "batch": batch, "lr": a.lr,
                 "pos_weight": a.pos_weight, "class_balance": a.class_balance, "gain_db": a.gain_db, "seed": a.seed,
@@ -266,6 +274,8 @@ def run(a) -> dict:
                 "device": device.type, "stopped": stopped}
     if perf:
         training["performed"] = perf
+    if aug:
+        training["augment"] = aug.record(len(copies))
     _atomic(out, lambda p: export.save(p, model, fe, name=a.name, version=a.version, license=a.license, sources=sources,
                                        stems=["drums"], classes=DRUM_CLASSES, class_notes=DRUM_NOTES,
                                        extra={"audio.training": json.dumps(training)}))
@@ -293,6 +303,7 @@ def main(argv=None):
     ap.add_argument("--class-balance", type=float, default=0.5,
                     help="scale each class's onset weight by (median hits / its hits) ** X, within 0.5..4 (0: off)")
     ap.add_argument("--gain-db", type=float, default=8.0, help="random level change, +-dB (0: off)")
+    augment.add_args(ap)
     ap.add_argument("--layout", default=None, help="JSON model layout (default: training.model.DRUM_LAYOUT)")
     ap.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"],
                     help="training device (default auto: CUDA, then MPS, then CPU)")

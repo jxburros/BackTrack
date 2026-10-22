@@ -1,10 +1,12 @@
 {
   "name": "@jxburros/backtrack",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "description": "BackTrack - stem separator (Explode) and MIDI transcriber (Surveil) on ggml.",
   "license": "MIT",
-  "vendor": ["ggml"],
+  "vendor": [
+    "ggml"
+  ],
   "scripts": {
     "postinstall": "node scripts/install-vendor.js",
     "vendor": "bash scripts/vendor.sh --spec ggml",

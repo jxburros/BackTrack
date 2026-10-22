@@ -275,26 +275,51 @@ allow use "within one or more musical composition(s)" only).
 Training on a clean track with noise added does help with phone recordings, old tapes and live
 rooms, as long as it is **added to** the existing training (as augmentation) rather than replacing
 it. A model trained only on "one instrument plus noise" learns to ignore noise, not other
-instruments, and transcribing a mix is mostly about the other instruments. The useful version:
+instruments, and transcribing a mix is mostly about the other instruments. So BackTrack degrades
+copies of the training items it already has (stems, separated stems, mixes, ACE-Step takes) and
+trains on those as well as the clean ones:
 
-- **What to add, at random strengths, per training crop:** background noise (pink and white, hum
-  at 50/60 Hz and its harmonics, crowd and room tone from CC0 recordings); a room (convolution
-  with a synthetic impulse response); a microphone or phone (band-pass 100 Hz to 4–8 kHz, a cheap
-  mic's response); a lossy codec (MP3 or Opus at 32–128 kbit/s); clipping and heavy compression; a
-  little wow and flutter; level changes (already there: `--gain-db`).
-- **Where it goes:** in the training data loader, so every epoch hears a different version. Song
-  Deck already adds white noise to half the mixes at −72 to −45 dBFS; that is far too quiet to
-  teach robustness. Noise around −30 to −10 dB below the music is what real bad recordings have.
-- **The catch:** BackTrack caches each item's features (HCQT) once, so augmentation that changes
-  the audio would have to happen before the cache: either a few degraded copies of each item made
-  once (cheap, fixed variety), or computing features on the fly for the augmented part of each
-  batch (more variety, a slower epoch; fine on a good GPU).
-- **Measure it:** keep a test set of real bad recordings (your own phone recordings of songs you
-  have MIDI for) and score every model on it; otherwise a gain in robustness can hide a loss on
-  clean audio.
-- **For the separator (Explode):** add noise as a fifth source the model must put in "other" (or
-  drop), and train on mixes with codec and room degradation applied to the mix only, with the clean
-  stems as targets: that is what makes a separator clean up a bad recording rather than copy it.
+```bash
+python3 -m training.train_drums --data ~/backtrack-training/sd-drums --audio stem,separated,performed \
+    --out models/surveil-drums.gguf --augment all --augment-copies 2
+```
+
+and in the pipeline config, `"train": { "augment": { "use": "all", "copies": 2 } }`.
+
+- **What is added, at random strengths, to each copy:** background noise (pink and white, hum at
+  50/60 Hz and its harmonics, synthesised crowd babble and room tone, or recordings of your own
+  with `--augment-noise DIR`); a room (convolution with a synthetic impulse response, made in
+  NumPy, so there is no impulse-response library and no licence question); a microphone or phone
+  (high-pass at 80–160 Hz, low-pass at 4–8 kHz, an uneven response); a lossy codec (MP3 or Opus at
+  32–128 kbit/s, through ffmpeg when it is installed); heavy compression and clipping; a little wow
+  and flutter; level changes (already there: `--gain-db`). The kinds, their ranges and how each
+  keeps the labels in place are in [training/README.md](../training/README.md#worse-recordings-degradation-augmentation).
+- **How loud:** Song Deck adds white noise to half its mixes at −72 to −45 dBFS; that is far too
+  quiet to teach robustness. Real bad recordings have noise about 10–30 dB below the music, which
+  is what `noise` adds, measured against each item's own level. Your own noise recordings are
+  training data too: use CC0 ones or your own, and they are listed in the model's `audio.sources`.
+- **The catch, and the choice made:** BackTrack caches each item's features (HCQT) once, and the
+  HCQT is not linear, so noise cannot be added to cached features. Augmentation therefore happens
+  on the waveform before the cache, and each item gets a few degraded copies made once
+  (`--augment-copies`), each cached under its own key (the spec and its seed): cheap, with a fixed
+  variety. Computing features on the fly for the degraded part of each batch (a new version every
+  epoch, a slower epoch, fine on a good GPU) is a possible later step.
+- **Measure it:** keep a test set of real bad recordings and score every model on it; otherwise a
+  gain in robustness can hide a loss on clean audio. The pipeline does this when
+  `evaluate.bad_recordings.dataset` names one: the report shows this run and the previous best on
+  it beside the clean test split, and promotion still goes by the clean split. To make one: play
+  some of your rendered songs on a speaker and record them with your phone, in a room, at a
+  rehearsal, from an old tape deck; trim each recording so it starts where the render starts (the
+  labels must line up within a few milliseconds; the score allows ±50 ms); then write a
+  `manifest.json` in Song Deck's layout whose songs are copies of the rendered songs' entries with
+  `"mix"` pointing at the recording (WAV), `"split": "test"`, their `"stems"` kept with their
+  `"notes"` (or their MIDI files copied along), and no `"separated"` or `"performances"`. Its `audio` setting is `mix` (or `separated`, if you
+  add separated stems of the recordings).
+- **For the separator (Explode), later:** add noise as a fifth source the model must put in
+  "other" (or drop), and train on mixes with codec and room degradation applied to the mix only,
+  with the clean stems as targets: that is what makes a separator clean up a bad recording rather
+  than copy it. Explode does not exist yet, so this is not built; `training/augment.py` is where
+  its degradations would come from.
 
 ## 7. Making the training songs faster
 

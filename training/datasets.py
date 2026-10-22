@@ -170,8 +170,9 @@ def read_songdeck(root, audio: str = "stem", min_agreement: float = MIN_AGREEMEN
             files = [root / sep]
         elif audio == "mix":
             files = [root / song["mix"]]
-            if files == [root / s["audio"] for s in drum_stems]:
+            if files == [root / s["audio"] for s in drum_stems if s.get("audio")]:
                 continue  # a drums-only library: the mix is the stem, already an item with "stem"
+                # (stems may have no audio at all: a set of recordings with only their notes)
         else:
             raise ValueError(f"unknown audio choice {audio!r} (stem, separated, mix or performed)")
         items.append(Item(f"{song['id']}:{audio}", split, files, hits, source, float(song.get("duration", 0))))

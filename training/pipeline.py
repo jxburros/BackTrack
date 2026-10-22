@@ -12,9 +12,11 @@ Steps (docs/training-at-home.md walks through all of it):
   perform   Song Deck's `npm run dataset:perform` (ACE-Step plays each song; --skip-existing).
   libraries the outside datasets in `libraries.use` (training/libraries.py: Slakh2100, E-GMD, ...),
             downloaded and imported into `libraries.dir` once; train reads them with --library.
-  train     python3 -m training.train_drums (or train_pitched for bass and melody) into runs/<id>/.
+  train     python3 -m training.train_drums (or train_pitched for bass and melody) into runs/<id>/,
+            with degraded copies of the training audio when `train.augment` asks for them.
   evaluate  python3 -m training.evaluate through the binary on the separated test split (and
-            the performed test windows), for this run's model and for runs/best; Song Deck's
+            the performed test windows, and a set of real bad recordings when
+            `evaluate.bad_recordings` names one), for this run's model and for runs/best; Song Deck's
             `npm run eval:datasets` with its built-in transcriber and this model served by
             `backtrack-surveil serve`, as the baseline.
   parity    python3 -m training.parity on this run's model.
@@ -89,11 +91,13 @@ DEFAULTS: dict = {
         "min_offset_strength": 0.2, "patience": None, "minutes": 0, "threads": None, "seed": 0,
         "steps_per_epoch": None, "resume": True, "skip_if_unchanged": True, "egmd": None,
         "egmd_limit": None, "extra_args": [],
+        "augment": {"use": [], "copies": 1, "seed": 0, "noise_dir": None},
     },
     "libraries": {"dir": "~/backtrack-training/libraries", "use": [], "audio": "stem,mix", "fetch": True, "limit": None},
     "evaluate": {
         "split": "test", "performed": "auto", "previous_best": True, "songdeck_baseline": True,
         "serve_port": 0, "songdeck_extra_args": [],
+        "bad_recordings": {"dataset": None, "audio": "mix", "split": "all"},
     },
     "promote": {"metric": "mean_class_f", "min_improvement": 0.0, "require_parity": True},
     "disk": {"reserve_gb": 5},
@@ -450,6 +454,18 @@ def render_minutes(rc) -> float:
     return ((rc["seconds"] or 180) + RENDER_TAIL_SECONDS) / 60
 
 
+def augment_cfg(cfg) -> dict:
+    """train.augment as a dict (a list or a comma-separated string is short for its "use")."""
+    a = cfg["train"]["augment"]
+    return a if isinstance(a, dict) else {**DEFAULTS["train"]["augment"], "use": a}
+
+
+def augment_copies(cfg) -> int:
+    """Degraded copies of each training item (training/augment.py); 0 when augmentation is off."""
+    a = augment_cfg(cfg)
+    return max(0, int(a["copies"] or 0)) if as_list(a["use"]) else 0
+
+
 def render_mb_per_song(cfg) -> tuple[float, float]:
     """(MB a song keeps, with its feature cache; MB more it holds until its chunk is pruned)."""
     rc = cfg["render"]
@@ -459,8 +475,9 @@ def render_mb_per_song(cfg) -> tuple[float, float]:
     kept_sep = min(sep, len(as_list(rc["keep_separated"])) or sep)
     file_mb = MB_PER_FILE_MINUTE * (2 if "--float" in as_list(rc["extra_args"]) else 1) * render_minutes(rc)
     inputs = [a for a in as_list(cfg["train"]["audio"]) if a != "performed"]
-    kept = file_mb * (1 + n_stems + kept_sep) + CACHE_MB_PER_MINUTE * render_minutes(rc) * len(inputs)
-    return kept, file_mb * (sep - kept_sep)
+    # Degraded copies (train.augment) are cached like the clean features: one more cache per copy.
+    cache = CACHE_MB_PER_MINUTE * render_minutes(rc) * len(inputs) * (1 + augment_copies(cfg))
+    return file_mb * (1 + n_stems + kept_sep) + cache, file_mb * (sep - kept_sep)
 
 
 def render_need_mb(cfg, songs: int) -> float:
@@ -472,7 +489,7 @@ def perform_mb_per_take(cfg) -> float:
     # The performance and its separated drums (ACE-Step may answer at 48 kHz or in float: x1.5),
     # plus their feature cache.
     m = render_minutes(cfg["render"])
-    return MB_PER_FILE_MINUTE * 2 * 1.5 * m + CACHE_MB_PER_MINUTE * m
+    return MB_PER_FILE_MINUTE * 2 * 1.5 * m + CACHE_MB_PER_MINUTE * m * (1 + augment_copies(cfg))
 
 
 def check_disk(r: Runner, where: Path, need_mb: float, what: str) -> None:
@@ -840,7 +857,10 @@ class Pipeline:
         except OSError:  # no git (the desktop hub's bundled copy): the training code's own files decide
             head = hashlib.sha1(b"".join(f.read_bytes() for f in sorted((REPO / "training").glob("*.py")))).hexdigest()
         libs = [[str(d), len((read_json(d / "manifest.json", None) or {}).get("songs", []))] for d in self.library_dirs()]
-        blob = json.dumps({"data": data, "train": self.cfg["train"], "model": self.cfg["model"], "backtrack": head,
+        train = dict(self.cfg["train"])
+        if not augment_copies(self.cfg):
+            train.pop("augment")  # off: the fingerprint is the one from before augmentation existed
+        blob = json.dumps({"data": data, "train": train, "model": self.cfg["model"], "backtrack": head,
                            **({"libraries": [libs, self.cfg["libraries"]["audio"]]} if libs else {})}, sort_keys=True)
         return hashlib.sha1(blob.encode()).hexdigest()
 
@@ -896,16 +916,24 @@ class Pipeline:
             args += ["--library", str(d)]
         if self.library_dirs():
             opt["--library-audio"] = self.cfg["libraries"]["audio"]
+        if augment_copies(self.cfg):
+            ac = augment_cfg(self.cfg)
+            opt["--augment"] = ",".join(as_list(ac["use"]))
+            opt["--augment-copies"] = augment_copies(self.cfg)
+            opt["--augment-seed"] = ac["seed"]
+            if ac["noise_dir"]:
+                opt["--augment-noise"] = str(resolve(ac["noise_dir"]))
         helptext = module_flags(self.cfg, module)
         for flag, v in opt.items():
             if v is None:
                 continue
             if helptext and flag not in helptext:
                 msg = f"{module} has no {flag} (this BackTrack checkout is older than the config)"
+                key = "augment" if flag.startswith("--augment") else flag[2:].replace("-", "_")
                 if self.dry:
                     self.r.say("WARNING: " + msg)
                 else:
-                    raise StepFailed(msg + f"; update BackTrack or remove train.{flag[2:].replace('-', '_')} from the config")
+                    raise StepFailed(msg + f"; update BackTrack or remove train.{key} from the config")
             args += [flag, str(v)]
         args += as_list(tc["extra_args"])
         # --resume continues the learning-rate schedule, which depends on the epochs, the batch and
@@ -941,9 +969,16 @@ class Pipeline:
         ok = (lambda q: (q.get("parts") or {}).get(self.kind)) if self.pitched else (lambda q: True)
         return any(ok(q) for s in man["songs"] if s.get("split") == self.cfg["evaluate"]["split"] for q in perf_list(s))
 
-    def evaluate_one(self, model: Path, audio: str, out: Path) -> bool:
-        """False when nothing in the split could be scored (performed: no take passed the thresholds)."""
-        args = ["--model", str(model), "--data", str(self.ds), "--audio", audio, "--split", self.cfg["evaluate"]["split"],
+    def bad_set(self) -> Path | None:
+        """evaluate.bad_recordings.dataset: real bad recordings in Song Deck's layout, never trained on."""
+        d = self.cfg["evaluate"]["bad_recordings"]["dataset"]
+        return resolve(d) if d else None
+
+    def evaluate_one(self, model: Path, audio: str, out: Path, data: Path | None = None, split: str | None = None) -> bool:
+        """False when nothing in the split could be scored (performed: no take passed the thresholds;
+        the bad-recording set: none of its songs has the parts this model transcribes)."""
+        split = split or self.cfg["evaluate"]["split"]
+        args = ["--model", str(model), "--data", str(data or self.ds), "--audio", audio, "--split", split,
                 "--binary", str(find_binary(self.cfg)), "--json", str(out)]
         if self.pitched:
             args += ["--stem", ",".join(self.stems)]
@@ -953,6 +988,10 @@ class Pipeline:
         code = self.r.py("training.evaluate", args, check=False)
         if code == 0:
             return True
+        if data and any("no items in split" in t for t in self.r.tail):
+            self.r.say(f"the bad-recording set {data} has no {split} songs with {self.kind} ({audio}): skipped")
+            out.unlink(missing_ok=True)
+            return False
         if audio == "performed" and any("no items in split" in t for t in self.r.tail):
             self.r.say(f"no performed {self.cfg['evaluate']['split']} take passed the agreement thresholds: "
                        "performed evaluation skipped")
@@ -999,6 +1038,15 @@ class Pipeline:
                 p = self.run_dir / f"eval-best-{audio}.json"
                 if self.evaluate_one(best, audio, p):
                     done[f"best-{audio}"] = p.name
+        bad = self.bad_set()
+        if bad:  # real bad recordings, beside the clean split: a gain there must not hide a loss on clean audio
+            bc = ec["bad_recordings"]
+            for tag, m in (("bad", model), ("best-bad", best if ec["previous_best"] else None)):
+                p = self.run_dir / f"eval-{tag}.json"
+                if m and self.evaluate_one(m, bc["audio"], p, data=bad, split=bc["split"]):
+                    done[tag] = p.name
+                elif tag == "bad":
+                    break
         if ec["songdeck_baseline"]:
             done["songdeck"] = self.songdeck_baseline(model)
         return {"model": str(model), "reports": done}
@@ -1190,7 +1238,8 @@ class Pipeline:
             shutil.copytree(self.run_dir / "songdeck-plugin", new / "songdeck-plugin")
         for extra in [model.with_suffix(".history.json")] + [self.run_dir / f for f in
                                                               ("report.md", "report.json", "eval-separated.json",
-                                                               "eval-performed.json", "eval-songdeck.json", "parity.json")]:
+                                                               "eval-performed.json", "eval-bad.json", "eval-songdeck.json",
+                                                               "parity.json")]:
             if extra.exists():
                 shutil.copy2(extra, new / extra.name)
         write_json(new / "best.json", {"run": self.run_dir.name, "model": model.name, "promoted": now_iso(),
@@ -1264,7 +1313,8 @@ def build_report(p: Pipeline) -> dict:
         splits[s.get("split")] = splits.get(s.get("split"), 0) + 1
     perfs = [q for s in man["songs"] for q in perf_list(s)]
     model = p.model_to_score()
-    ev = {k: read_json(rd / f"eval-{k}.json") for k in ("separated", "performed", "best-separated", "best-performed")}
+    ev = {k: read_json(rd / f"eval-{k}.json") for k in ("separated", "performed", "best-separated", "best-performed",
+                                                         "bad", "best-bad")}
     scored = "separated"
     for k in ("separated", "best-separated"):  # pitched, without separated audio: the clean stems were scored
         if ev[k] is None and (rd / f"eval-{k.replace('separated', 'stem')}.json").exists():
@@ -1289,9 +1339,10 @@ def build_report(p: Pipeline) -> dict:
                     "mean_agreement": (sum(float(q.get("agreement", 0)) for q in perfs) / len(perfs)) if perfs else None},
         "model": {"path": str(model), "exists": model.is_file(), "meta": model_meta(model) if model.is_file() else {}},
         "history": history,
-        "evaluation": {"this": {"separated": ev["separated"], "performed": ev["performed"]},
-                       "best": {"separated": ev["best-separated"], "performed": ev["best-performed"]},
+        "evaluation": {"this": {"separated": ev["separated"], "performed": ev["performed"], "bad": ev["bad"]},
+                       "best": {"separated": ev["best-separated"], "performed": ev["best-performed"], "bad": ev["best-bad"]},
                        "songdeck": sd_sides},
+        "bad_recordings": ({**cfg["evaluate"]["bad_recordings"], "dataset": str(p.bad_set())} if p.bad_set() else None),
         "previous_best": read_json(p.best_dir() / "best.json"),
         "parity_ok": parity_ok,
         "steps": steps,
@@ -1317,9 +1368,13 @@ def build_report(p: Pipeline) -> dict:
         why = f"{label} {mine:.3f}" + (f" beats the previous best's {theirs:.3f} ({mine - theirs:+.3f})" if theirs is not None
                                          else " (first model: nothing to beat)")
     sd_int, sd_bt = _metric(rep["evaluation"]["songdeck"]["internal"], metric), _metric(rep["evaluation"]["songdeck"]["backtrack"], metric)
+    # Promotion stays on the clean split; the bad recordings are shown beside it, never instead of it.
+    bad, bad_prev = _metric(ev["bad"], metric), _metric(ev["best-bad"], metric)
+    if bad is not None:
+        why += f"; bad recordings: {label} {bad:.3f}" + (f" (previous best {bad_prev:.3f})" if bad_prev is not None else "")
     rep["promotion"] = {"promote": promote, "metric": metric, "value": mine, "previous": theirs,
                         "beats_internal": sd_int is not None and sd_bt is not None and sd_bt > sd_int,
-                        "songdeck_internal": sd_int, "songdeck_backtrack": sd_bt,
+                        "songdeck_internal": sd_int, "songdeck_backtrack": sd_bt, "bad": bad, "bad_previous": bad_prev,
                         "summary": ("PROMOTED to runs/best: " if promote else "not promoted: ") + why}
     return rep
 
@@ -1382,6 +1437,12 @@ def report_markdown(rep: dict) -> str:
                      f"agreement F ≥ {perf.get('min_agreement')}, offset strength ≥ {perf.get('min_offset_strength')})"
                      + ("; rejected takes: " + ", ".join(f"{k} {v}" for k, v in (perf.get("rejected") or {}).items() if v)
                         if any((perf.get("rejected") or {}).values()) else ""))
+        aug = training.get("augment")
+        if isinstance(aug, dict):
+            L.append(f"- Degradation augmentation: {aug.get('copies')} degraded "
+                     f"{'copy' if aug.get('copies') == 1 else 'copies'} of each of {aug.get('items', 0) // max(1, aug.get('copies') or 1)} "
+                     f"training items ({', '.join(aug.get('kinds') or [])}; seed {aug.get('seed')})"
+                     + (f"; skipped here: {', '.join(aug['skipped'])}" if aug.get("skipped") else ""))
         vf = training.get("valid_note_f" if pitched else "valid_mean_class_f")
         secs = [h.get("seconds", 0) for h in rep["history"] if h.get("seconds")]
         L.append(f"- Training: {training.get('epochs')} epochs, best epoch {training.get('best_epoch')}, "
@@ -1405,6 +1466,14 @@ def report_markdown(rep: dict) -> str:
         if isinstance(pinfo, dict):
             L += ["", "Scored: " + ", ".join(f"{k} {v:.1f}" if isinstance(v, float) else f"{k} {v}"
                                             for k, v in pinfo.items() if not isinstance(v, (list, dict)))]
+        L.append("")
+    if e["this"].get("bad") or e["best"].get("bad"):
+        b = rep.get("bad_recordings") or {}
+        L += ["## Bad recordings (evaluate.bad_recordings)", "",
+              f"Real recordings of worse quality, never trained on: `{b.get('dataset')}`, input `{b.get('audio')}`, "
+              f"split `{b.get('split')}`. Shown beside the clean split, which alone decides promotion, so a gain "
+              "here cannot hide a loss on clean audio.", ""]
+        L += table([("this run", e["this"].get("bad")), ("previous best", e["best"].get("bad"))])
         L.append("")
     if e["songdeck"]["internal"] or e["songdeck"]["backtrack"]:
         L += ["## Song Deck's harness (npm run eval:datasets, --input separated)", "",
@@ -1600,6 +1669,20 @@ def preflight(p: Pipeline, steps: list[str]) -> None:
         r = subprocess.run([python_cmd(cfg), "-c", "import numpy, torch"], capture_output=True, text=True, check=False)
         if r.returncode != 0:
             problems.append(f"{python_cmd(cfg)} cannot import numpy and torch (see docs/training-at-home.md, step 2)")
+    if "train" in steps and augment_copies(cfg):
+        ac = augment_cfg(cfg)
+        try:
+            from .augment import ORDER
+        except ImportError:  # no NumPy in this Python: train_drums checks the kinds itself
+            ORDER = None
+        unknown = [k for k in as_list(ac["use"]) if ORDER and k not in ORDER and k != "all"]
+        if unknown:
+            problems.append(f"train.augment.use: unknown kind {', '.join(unknown)} (kinds: {', '.join(ORDER)}, or all)")
+        if ac["noise_dir"] and not resolve(ac["noise_dir"]).is_dir():
+            problems.append(f"train.augment.noise_dir: no folder {resolve(ac['noise_dir'])}")
+    if "evaluate" in steps and p.bad_set() and not (p.bad_set() / "manifest.json").is_file():
+        problems.append(f"evaluate.bad_recordings.dataset: no manifest.json in {p.bad_set()} (a dataset in Song Deck's "
+                        "layout: docs/training-data.md, section 6)")
     if "perform" in steps and cfg["perform"]["enabled"] and not cfg["perform"]["server"]["command"] \
             and not http_up(cfg["perform"]["url"].rstrip("/")):
         msg = (f"nothing answers at {cfg['perform']['url']}: start ACE-Step's API server first (uv run acestep-api), "

@@ -44,11 +44,13 @@ build/backtrack-surveil song.wav --stem drums --models-dir models -o drums.mid
 | `parity.py`        | The same clips through PyTorch and the binary; fails loudly                                                     |
 | `datasets.py`      | Readers for Song Deck's dataset export and E-GMD; the General MIDI drum mapping                                  |
 | `synth.py`         | Synthetic drum songs written as a Song Deck dataset (also the readers' test data)                                |
-| `features.py`      | HCQT features cached on disk (float16, memory-mapped), onset targets, crops                                      |
+| `features.py`      | HCQT features cached on disk (float16, memory-mapped), onset targets, crops; degraded copies cached beside them |
+| `augment.py`       | Degradation augmentation: room, noise, mic, compression, clipping, wow and flutter, MP3/Opus copies of training items, labels kept in place ([below](#worse-recordings-degradation-augmentation)) |
 | `train_drums.py`   | Training loop and export                                                                                         |
 | `train_pitched.py` | The same for pitched models (bass, melody, vocals): note, onset, offset and contour targets from the stems' notes and bends |
 | `evaluate.py`      | Onset F-measure per class (drums) or note F (pitched), through PyTorch or through the binary; `pick_pitched` ports the binary's pitched note picking |
 | `check_performed.py` | Checks training on performed (ACE-Step) audio on a tiny synthetic set: shifted labels, windows, masking, resume (CI) |
+| `check_augment.py` | Checks degradation augmentation: onsets stay within a frame, copies are deterministic and cached apart, noise levels, nothing changes when it is off (CI) |
 | `pipeline.py`      | The whole run in one command: render, perform, libraries, train, evaluate, parity, report; resumable and schedulable ([below](#the-pipeline-one-command)) |
 | `queue.py`         | Several pipeline runs one after another (drums, then bass, then melody overnight), optionally from a set time; stoppable and resumable ([below](#several-models-one-after-another)) |
 | `libraries.py`     | The catalogue of outside datasets with their licences; downloads and imports them as Song Deck-format datasets read with `--library` ([docs/training-data.md](../docs/training-data.md)) |
@@ -164,14 +166,16 @@ Features are computed once per item, in parallel, into `<first data dir>/.cache/
 and read memory-mapped, so an epoch costs only the model. The cache holds the one extended
 transform every harmonic channel reads (401 bins at the defaults, float16), not the 8 × 264
 stack: exact, and about 0.25 GB per hour of audio per `--audio` choice (`--cache DIR` to move
-it).
+it). Degraded copies (`--augment`) are cached in the same folder as `aug-*.npy`, as much again per
+copy.
 
 ### Training
 
 ```bash
 python3 -m training.train_drums --data DIR [--data DIR2] [--egmd ROOT --egmd-limit 2000] \
     --out models/surveil-drums-0.1.0.gguf [--audio stem,separated,performed] [--epochs 30] [--minutes 0] \
-    [--device auto] [--patience 0] [--resume] [--min-agreement 0.6] [--min-offset-strength 0.2]
+    [--device auto] [--patience 0] [--resume] [--min-agreement 0.6] [--min-offset-strength 0.2] \
+    [--augment room,noise,mic,codec --augment-copies 1]
 ```
 
 Each step takes random 256-frame crops (`--crop`) with the receptive radius of context each
@@ -216,6 +220,65 @@ Speed on a 4-core CPU (no GPU), default layout: about 9,000 training frames per 
 machine to itself, so an epoch over one hour of audio (310k frames) takes about 35 s, plus
 valid scoring (about 0.3 s per minute of audio). Features cost about 0.4 s per minute of
 44.1 kHz audio on 4 processes, once.
+
+### Worse recordings: degradation augmentation
+
+```bash
+python3 -m training.train_drums --data DIR --out M.gguf --audio stem,separated,performed \
+    --augment all --augment-copies 2 [--augment-seed 0] [--augment-noise ~/noise-recordings]
+```
+
+Phone, rehearsal and live recordings, old tapes and low-bitrate MP3s sound worse than Song Deck's
+renders. `--augment` (both `train_drums` and `train_pitched`; off by default) adds N degraded copies
+of every training item (`--augment-copies`, default 1): stems, separated stems, mixes and ACE-Step
+takes alike, on top of the clean ones, never instead of them. The reasoning is in
+[docs/training-data.md](../docs/training-data.md#6-worse-recordings-noise-and-degradation).
+
+Each copy applies each kind named with probability 1/2 (at least one), at random strengths, in this
+order, on the waveform at the front end's rate (22.05 kHz) before the HCQT:
+
+| Kind | What it does | Range |
+| --- | --- | --- |
+| `room` | convolution with a synthetic impulse response: the direct sound at t = 0, early reflections 2–33 ms later weakening with distance, a noise tail in octave bands with the highs dying faster | RT60 0.15–1.2 s, direct-to-reverberant ratio −3 to +9 dB |
+| `noise` | one or two of white, pink, rumble (room tone), mains hum (50 or 60 Hz and its harmonics), crowd (synthesised babble), or one of your own WAV recordings (`--augment-noise DIR`) | 10–30 dB below the item's level (measured on its loud parts, not absolute dBFS) |
+| `mic` | a phone or a cheap mic: high-pass, low-pass, a presence peak and three bumps, minimum phase | 80–160 Hz, 4–8 kHz, bumps up to ±6 dB |
+| `compress` | heavy compression, no look-ahead | threshold 6–20 dB below the item's level, ratio 4–20, attack 3–20 ms, release 50–300 ms |
+| `clip` | hard or soft clipping | 3–12 dB below the peak |
+| `wow` | wow and flutter | 0.3–2 Hz at 0.05–0.3 %, 6–16 Hz at 0.02–0.1 %; the timing moves by at most 1.5 ms |
+| `codec` | MP3 (LAME, 44.1 kHz) or Opus (48 kHz) through `ffmpeg` | 32, 48, 64, 96 or 128 kbit/s |
+
+`all` names them all. The copy is brought back to the item's level; `--gain-db` still varies the
+level as before.
+
+**The labels stay right.** A copy keeps its item's labels, so nothing may move the audio in time:
+the room's direct sound is at sample 0 with no pre-delay; the mic filter is minimum phase (no
+pre-echo); the compressor has no look-ahead; wow and flutter move the timing by at most 1.5 ms
+(0.13 of a frame); the codec's encoder and decoder delay is measured once per setting on a test
+signal and trimmed, and the output is cut or padded to the input's length (ffmpeg 6.1 honours the
+MP3's gapless header and measures 0; a build or a pipe without it gives LAME's 576 + 529 = 1105
+samples at 44.1 kHz, which the measurement finds and removes). `check_augment.py` checks it: with
+each kind at several strengths, every hit's onset frame moves by at most one frame (98% stay on
+the same frame), and with all of them at once there is no shift overall.
+
+**ffmpeg** is needed for `codec` only. Without it on PATH, `codec` is skipped with one warning and
+the other kinds run (the copies are then cached under a key of their own).
+
+**The cache.** The HCQT is not linear, so noise cannot be added to cached features: each copy is
+made once and cached beside the clean features (`aug-*.npy`), under a key holding the item, the
+kinds, the seed (`--augment-seed`), the copy's number, the code's version (`augment.VERSION`) and,
+for `codec`, ffmpeg's version: the same item, kinds and seed give the same audio and the same
+entry, and clean entries are never touched. Each copy costs as much disk as the clean item's
+features, and about two to four times its computing time (about 1–3 s per minute of audio).
+
+**Training with copies.** Copies are more items with the same labels, drawn like the others; an
+epoch stays one pass over the clean frames, so it takes no longer, and the clean audio is heard one
+time in N + 1. The class weights come from the clean items. Validation stays on the clean valid
+split. `audio.training` records `augment` (kinds, copies, seed); `--augment-noise` recordings add
+a line to `audio.sources`, since they are training data too: check their licence.
+
+With `--augment` off (the default), the cache, the model and the output are exactly as before.
+A later step could compute features on the fly for the degraded part of each batch (more variety,
+a slower epoch); the copies made once are the cheap version.
 
 ### Evaluation
 
@@ -317,8 +380,8 @@ Steps, in order (`--steps` picks some; with `--run`, the steps named run again e
 | `render`   | Song Deck's `npm run dataset:render -- --skip-existing` into `dataset`, `render.chunk` songs at a time: songs already there (and their performances) are kept, missing ones rendered, and Song Deck refuses if the options differ from the dataset's. Only the separated stems in `keep_separated` are computed (`--separate-stems`; an older Song Deck writes all four and the others are deleted after each chunk). |
 | `perform`  | Song Deck's `npm run dataset:perform -- --skip-existing` (ACE-Step plays the songs), with `--judge backtrack-surveil=<url>` when a trained model exists (`perform.judge`). Starts ACE-Step first when `perform.server.command` is set and nothing answers, and stops it afterwards, so training gets the GPU. Exit 1 (some takes failed) is a warning when `allow_failed_takes`; the next run retries them. Exit 3 (ACE-Step unreachable) stops the run unless `perform.optional`. |
 | `libraries` | Each library in `libraries.use` (`python3 -m training.libraries list`), downloaded and imported into `libraries.dir/<id>` once (`training.libraries add`); with `libraries.fetch` false, a missing one stops the run with the command to run. Nothing to do when `use` is empty. |
-| `train`    | `python3 -m training.train_drums` (with `--library` for each library) into `runs/<id>/<file_stem>-<version>.gguf`. Skipped when the data, the `train`/`model` settings and the BackTrack commit are the same as the last finished run (`skip_if_unchanged`; `--force` trains anyway). On a resumed run, `--resume` continues the checkpoint only if every argument is the same. |
-| `evaluate` | `python3 -m training.evaluate --binary` on the separated test split and on the performed test windows (`eval-separated.json`, `eval-performed.json`), the same for `runs/best` (`eval-best-*.json`), and Song Deck's `npm run eval:datasets -- --dataset songdeck --input separated --tasks transcribe --transcriber internal,backtrack-surveil=<url>` (`eval-songdeck.json`) with this run's model served by `backtrack-surveil serve --models-dir runs/<id>/serve-models` on a free port. No performed take passing the thresholds in the test split is not an error. |
+| `train`    | `python3 -m training.train_drums` (with `--library` for each library, and `--augment` when `train.augment.use` names kinds) into `runs/<id>/<file_stem>-<version>.gguf`. Skipped when the data, the `train`/`model` settings and the BackTrack commit are the same as the last finished run (`skip_if_unchanged`; `--force` trains anyway). On a resumed run, `--resume` continues the checkpoint only if every argument is the same. |
+| `evaluate` | `python3 -m training.evaluate --binary` on the separated test split and on the performed test windows (`eval-separated.json`, `eval-performed.json`), on the bad-recording set when `evaluate.bad_recordings.dataset` names one (`eval-bad.json`), the same for `runs/best` (`eval-best-*.json`), and Song Deck's `npm run eval:datasets -- --dataset songdeck --input separated --tasks transcribe --transcriber internal,backtrack-surveil=<url>` (`eval-songdeck.json`) with this run's model served by `backtrack-surveil serve --models-dir runs/<id>/serve-models` on a free port. No performed take passing the thresholds in the test split is not an error. |
 | `parity`   | `python3 -m training.parity --binary ... --model <this run's model>`.                                                           |
 | `report`   | `report.md` and `report.json`; the model as a Song Deck model plugin in `runs/<id>/songdeck-plugin/<file_stem>-trained/` (manifest with its SHA-256, the test score as its reliability; copied to `runs/best/` with the model);  copies the model to `runs/best/` when it beats the previous best (re-scored on today's test split) and parity passed. `weights/` is never written. |
 | `rejudge`  | Only after a promotion (`perform.rejudge_after_promotion`): Song Deck's `dataset:perform --rejudge --judge backtrack-surveil=<url>` with the new best model served, re-scoring the takes' windows without ACE-Step. |
@@ -374,17 +437,22 @@ an unknown key is an error. Relative paths are relative to the BackTrack checkou
 | `train.resume` | `true` | when a run is resumed, continue its checkpoint (only if the arguments are unchanged) |
 | `train.skip_if_unchanged` | `true` | do not retrain on the same data and settings (nightly runs with nothing new end quickly) |
 | `train.egmd`, `.egmd_limit`, `.extra_args` | `null` | also train on E-GMD (check its licence), and more `train_drums` options |
+| `train.augment.use` | `[]` | degradation augmentation ([above](#worse-recordings-degradation-augmentation)): the kinds, e.g. `["room", "noise", "mic", "codec"]` or `"all"` (`[]`: off) |
+| `train.augment.copies`, `.seed`, `.noise_dir` | `1`, `0`, `null` | degraded copies of each training item, their seed, a folder of your own noise recordings (WAV) |
 | `libraries.use`, `.dir` | `[]`, `~/backtrack-training/libraries` | outside datasets to train on as well (ids from `python3 -m training.libraries list`, e.g. `["egmd", "slakh2100"]`) and where they are downloaded and imported ([docs/training-data.md](../docs/training-data.md)) |
 | `libraries.audio`, `.fetch`, `.limit` | `stem,mix`, `true`, `null` | what the model hears from them (`stem`, `mix`); download and import missing ones in the `libraries` step; import only about N songs of each |
 | `evaluate.split` | `test` | the split scored |
 | `evaluate.performed` | `auto` | score performed test windows when there are any (`true`/`false` to force) |
 | `evaluate.previous_best` | `true` | re-score `runs/best` on the same split, for a fair comparison as the dataset grows |
 | `evaluate.songdeck_baseline`, `.serve_port`, `.songdeck_extra_args` | `true`, `0`, `[]` | run Song Deck's harness with its built-in transcriber; port for `serve` (0: a free one) |
+| `evaluate.bad_recordings.dataset` | `null` | a dataset of real bad recordings in Song Deck's layout, never trained on ([docs/training-data.md](../docs/training-data.md#6-worse-recordings-noise-and-degradation)): this run and the previous best are scored on it too, beside the clean split, which alone decides promotion |
+| `evaluate.bad_recordings.audio`, `.split` | `mix`, `all` | what is scored in it (`mix`: the recording; `separated` if you added separated stems) and which songs |
 | `promote.metric`, `.min_improvement`, `.require_parity` | `mean_class_f`, `0`, `true` | what "better" means on the separated test split (`mean_class_f` or `overall_f`) |
 | `disk.reserve_gb` | `5` | render and perform refuse to start unless their estimate plus this much is free |
 
 The disk estimate: 10.6 MB per minute per 16-bit stereo file (mix, stems, the four separated
-stems before pruning), 0.25 GB per hour of audio per `train.audio` input for the feature cache,
+stems before pruning), 0.25 GB per hour of audio per `train.audio` input for the feature cache
+(times 1 + `train.augment.copies` with augmentation),
 and for each take its audio and separated drums at 1.5× that (a margin: the files are written at the song's rate, as large as the mix).
 
 
