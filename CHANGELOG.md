@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Release publishing** (0.6.1): the release workflow and validation pinned release-infrastructure
+  `181636b`, whose publisher looked up the draft it had just created by tag (`GET
+  releases/tags/<tag>` never returns drafts), so the v0.5.1 run failed with a 404 after building
+  everything and left an empty draft. Both pins now point at `d7f42f9`, which finds drafts in the
+  release list (the same move Onyx Engine made); the reusable workflows' interfaces are unchanged.
+
 ### Added
 
 - **Bass and melody models** (`weights/surveil-bass-0.1.0.gguf`, `weights/surveil-melody-0.1.0.gguf`),
