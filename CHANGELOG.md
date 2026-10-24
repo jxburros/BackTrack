@@ -31,6 +31,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   and keys. Checked in CI by `training/check_chords.py`. The baseline to beat, Song Deck's
   built-in detector on 60 unseen rendered songs: root 0.591, sevenths 0.441, key 0.785.
 
+- **Model version in the TRAIN tab:** each kind of model keeps its own version, written into the
+  model and its file name. It starts at the next minor after the released model that comes with
+  BackTrack (drums 0.3.0, bass and melody 0.2.0) and is saved, so it stays put between runs and
+  across updates until you change it. The tab used to write 0.1.0 into every model, so a retrained
+  drum model collided with the released drums 0.1.0. **Check setup** fails on a version that isn't
+  three numbers and warns on one that reuses a released version.
+
 ### Changed
 
 - **Drums 0.2.0** (`weights/surveil-drums-0.2.0.gguf`) replaces 0.1.0: the same network trained

@@ -254,6 +254,7 @@ fn main() {
             status,
             train::train_settings,
             train::train_save,
+            train::train_versions,
             train::train_pick,
             train::train_check,
             train::train_start,

@@ -38,6 +38,9 @@ pub struct Settings {
     pub augment: Vec<String>, // degradation kinds (training/augment.py) for degraded copies; empty: off
     pub augment_copies: u32,  // degraded copies of each training item, 1-4
     pub augment_noise: String, // a folder of your own noise recordings (WAV), or empty
+    // The version written into each kind's model (general.version, the file name), "x.y.z";
+    // missing or empty: the next minor after the released model (`suggested_version`).
+    pub versions: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for Settings {
@@ -62,6 +65,7 @@ impl Default for Settings {
             augment: Vec::new(),
             augment_copies: 1,
             augment_noise: String::new(),
+            versions: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -690,6 +694,25 @@ pub async fn train_check(app: AppHandle, settings: Settings) -> Vec<Check> {
             _ => push("Worse recordings", "ok", what, None),
         }
     }
+
+    // Model version: the kind(s) about to train, never a released version with other weights.
+    let current = kind(&s);
+    let kinds = std::iter::once(current)
+        .chain(KINDS.into_iter().filter(|k| *k != current && s.queue.iter().any(|q| q == k)));
+    for k in kinds {
+        let ks = Settings { kind: k.into(), ..s.clone() };
+        let released = released_versions(&app, k);
+        match model_version(&app, &ks) {
+            Err(e) => push("Model version", "fail", e, None),
+            Ok(v) if released.contains(&parse_version(&v).unwrap_or_default()) => push(
+                "Model version",
+                "warn",
+                format!("surveil-{k}-{v} is already a released model with other weights: choose a newer version ({} is next)", suggested_version(&app, k)),
+                None,
+            ),
+            Ok(v) => push("Model version", "ok", format!("surveil-{k}-{v}.gguf"), None),
+        }
+    }
     out
 }
 
@@ -798,6 +821,69 @@ fn config_path(s: &Settings) -> PathBuf {
     }
 }
 
+/// "x.y.z" as numbers, or None for anything else (a model version must be plain semver: it is
+/// the GGUF's general.version and part of the file name).
+fn parse_version(v: &str) -> Option<(u32, u32, u32)> {
+    let mut parts = v.trim().split('.').map(|p| {
+        (!p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())).then(|| p.parse::<u32>().ok()).flatten()
+    });
+    let (a, b, c) = (parts.next()??, parts.next()??, parts.next()??);
+    parts.next().is_none().then_some((a, b, c))
+}
+
+/// The released versions of a kind's model: the `surveil-<kind>-x.y.z.gguf` files that come with
+/// the hub (trainer/weights, copied from the repository's weights/), newest last.
+fn released_versions(app: &AppHandle, kind: &str) -> Vec<(u32, u32, u32)> {
+    let prefix = format!("surveil-{kind}-");
+    let mut out: Vec<(u32, u32, u32)> = trainer_dir(app)
+        .and_then(|d| std::fs::read_dir(d.join("weights")).ok())
+        .into_iter()
+        .flatten()
+        .filter_map(|e| {
+            let name = e.ok()?.file_name().into_string().ok()?;
+            parse_version(name.strip_prefix(&prefix)?.strip_suffix(".gguf")?)
+        })
+        .collect();
+    out.sort_unstable();
+    out
+}
+
+/// The version a new model of this kind gets unless you choose one: the next minor after the
+/// newest released one, so it never reuses a released version for different weights; 0.1.0
+/// when none is released.
+fn suggested_version(app: &AppHandle, kind: &str) -> String {
+    next_version(&released_versions(app, kind))
+}
+
+/// The next minor after the newest of `released` (sorted), or 0.1.0.
+fn next_version(released: &[(u32, u32, u32)]) -> String {
+    match released.last() {
+        Some((major, minor, _)) => format!("{major}.{}.0", minor + 1),
+        None => "0.1.0".into(),
+    }
+}
+
+/// The version this run writes into the model: the one chosen for the kind, or the suggestion.
+/// It is part of the pipeline's fingerprint, so it stays the same between runs unless changed.
+fn model_version(app: &AppHandle, s: &Settings) -> Result<String, String> {
+    match s.versions.get(kind(s)).map(|v| v.trim()).filter(|v| !v.is_empty()) {
+        None => Ok(suggested_version(app, kind(s))),
+        Some(v) if parse_version(v).is_some() => Ok(v.to_string()),
+        Some(v) => Err(format!("the {} model's version {v:?} is not like 1.2.0: three numbers with dots", kind(s))),
+    }
+}
+
+/// For the page: each kind's newest released version and the suggested next one.
+#[tauri::command]
+pub fn train_versions(app: AppHandle) -> serde_json::Value {
+    let mut out = serde_json::Map::new();
+    for k in KINDS {
+        let released = released_versions(&app, k).last().map(|(a, b, c)| format!("{a}.{b}.{c}"));
+        out.insert(k.into(), serde_json::json!({ "released": released, "suggested": suggested_version(&app, k) }));
+    }
+    out.into()
+}
+
 /// The degradation kinds, in training/augment.py's order (ORDER).
 const AUGMENT: [&str; 7] = ["room", "noise", "mic", "compress", "clip", "wow", "codec"];
 
@@ -852,7 +938,7 @@ fn write_config(app: &AppHandle, s: &Settings, python: &str) -> Result<PathBuf, 
         "npm": npm,
         "dataset": dataset_dir(s),
         "runs_dir": runs_dir(s),
-        "model": { "kind": kind(s), "name": name, "version": "0.1.0", "file_stem": format!("surveil-{}", kind(s)) },
+        "model": { "kind": kind(s), "name": name, "version": model_version(app, s)?, "file_stem": format!("surveil-{}", kind(s)) },
         "render": { "songs": s.songs.max(50), "only_stems": stems, "keep_separated": keep },
         "perform": { "enabled": s.use_acestep, "server": server },
         "train": {
@@ -1295,4 +1381,26 @@ pub async fn train_poll(
         queue,
         shown: crate::train::kind(&settings).to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{next_version, parse_version};
+
+    #[test]
+    fn model_versions_are_plain_semver() {
+        assert_eq!(parse_version("0.2.0"), Some((0, 2, 0)));
+        assert_eq!(parse_version(" 1.10.3 "), Some((1, 10, 3)));
+        for bad in ["", "1.2", "1.2.3.4", "1.2.x", "v1.2.3", "1..3", "1.2.3-rc1", "-1.2.3"] {
+            assert_eq!(parse_version(bad), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn the_suggestion_never_reuses_a_released_version() {
+        assert_eq!(next_version(&[]), "0.1.0");
+        assert_eq!(next_version(&[(0, 1, 0)]), "0.2.0");
+        assert_eq!(next_version(&[(0, 1, 0), (0, 2, 0)]), "0.3.0");
+        assert_eq!(next_version(&[(1, 4, 2)]), "1.5.0");
+    }
 }

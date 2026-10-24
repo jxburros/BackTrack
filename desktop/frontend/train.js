@@ -5,6 +5,7 @@
   const invoke = window.__TAURI_INTERNALS__.invoke;
   const STEP_NAMES = { render: 'Render songs', perform: 'ACE-Step', libraries: 'Libraries', train: 'Train', evaluate: 'Score', parity: 'Check', report: 'Report' };
   let settings = null, next = 0, timer = null, wasRunning = false;
+  let versions = {}; // per kind: { released, suggested } (train_versions)
   let shownKind = null; // the kind whose run and best model are shown (a queue's current one)
 
   const fields = {
@@ -52,7 +53,21 @@
     s.start_at = $('t-start-at').value;
     s.libraries = [...document.querySelectorAll('[data-library]')].filter((b) => b.checked).map((b) => b.dataset.library);
     s.augment = augmentBoxes().filter((b) => b.checked).map((b) => b.dataset.augment);
+    // The field shows the version of the kind it was filled for, even when What to train just changed.
+    s.versions = { ...(settings.versions || {}), [settings.kind]: $('t-version').value.trim() };
     return s;
+  }
+
+  // MODEL VERSION: each kind keeps its own. It names the model file and is part of the run's
+  // fingerprint, so it is saved once and stays the same between runs until changed.
+  function showVersion() {
+    const v = versions[settings.kind] || {};
+    $('t-version').value = (settings.versions || {})[settings.kind] || '';
+    $('t-version').placeholder = v.suggested || '0.1.0';
+    $('t-version-note').textContent =
+      (v.released ? `Released: ${v.released}. ` : 'None released yet. ')
+      + 'Written into the model and its file name. Keep it while you train more runs of the same model;'
+      + ' change it for the next one you mean to release.';
   }
 
   function fill() {
@@ -64,6 +79,7 @@
     for (const b of augmentBoxes()) b.checked = (settings.augment || []).includes(b.dataset.augment);
     showKind();
     showAugment();
+    showVersion();
   }
 
   async function save() {
@@ -72,12 +88,14 @@
     $('t-augment-copies').value = settings.augment_copies;
     showKind();
     showAugment();
+    showVersion();
     if (kindChanged) { $('t-log').textContent = ''; next = 0; }
     try { await invoke('train_save', { settings }); } catch { /* the next start says why */ }
   }
 
   for (const [, id] of Object.entries(fields)) $(id).addEventListener('change', save);
   $('t-use-acestep').addEventListener('change', save);
+  $('t-version').addEventListener('change', save);
   for (const b of document.querySelectorAll('[data-queue]')) b.addEventListener('change', save);
   $('t-start-at').addEventListener('change', save);
   for (const b of document.querySelectorAll('[data-library]')) b.addEventListener('change', save);
@@ -271,6 +289,14 @@
 
   (async () => {
     settings = await invoke('train_settings');
+    try { versions = await invoke('train_versions'); } catch { /* an older shell: no suggestions */ }
+    // A kind without a chosen version gets the suggestion, saved, so it stays put across updates.
+    const missing = Object.keys(versions).filter((k) => !(settings.versions || {})[k]);
+    if (missing.length) {
+      settings.versions = { ...(settings.versions || {}) };
+      for (const k of missing) settings.versions[k] = versions[k].suggested;
+      try { await invoke('train_save', { settings }); } catch { /* the next start says why */ }
+    }
     fill();
     poll();
   })();
