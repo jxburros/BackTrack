@@ -4,6 +4,7 @@
     scripts/make-test-audio.py OUT_DIR
 
 melody.wav  C4 E4 G4 C5 A3, 0.5 s each with 0.1 s gaps, harmonic tones (44.1 kHz stereo)
+lead.wav    the same notes with eight partials, as a sung or played lead sounds (44.1 kHz mono)
 bass.wav    E2 A2 B2 E2, 0.6 s each (22.05 kHz mono)
 drums.wav   kick on the beat, hi-hat on the off-beat, 120 BPM, 2 bars (44.1 kHz mono)
 truth.json  the notes in each clip
@@ -42,10 +43,10 @@ def write(path, samples, rate, channels=1):
         w.writeframes(bytes(frames))
 
 
-def sequence(pitches, dur, gap, rate):
+def sequence(pitches, dur, gap, rate, harmonics=(1.0, 0.5, 0.3, 0.2)):
     samples, truth, t = [], [], 0.0
     for p in pitches:
-        samples += tone(p, dur, rate)
+        samples += tone(p, dur, rate, harmonics)
         truth.append({"pitch": p, "start": round(t, 3), "end": round(t + dur, 3)})
         t += dur
         samples += [0.0] * int(gap * rate)
@@ -83,6 +84,9 @@ def main():
     truth = {}
     mel, truth["melody"] = sequence([60, 64, 67, 72, 57], 0.5, 0.1, 44100)
     write(out / "melody.wav", mel, 44100, channels=2)
+    # For the trained melody model (weights/): four partials are too thin for a lead, and it stays silent.
+    lead, truth["lead"] = sequence([60, 64, 67, 72, 57], 0.5, 0.1, 44100, (1.0, 0.7, 0.5, 0.4, 0.3, 0.25, 0.2, 0.15))
+    write(out / "lead.wav", lead, 44100)
     bass, truth["bass"] = sequence([40, 45, 47, 40], 0.6, 0.1, 22050)
     write(out / "bass.wav", bass, 22050)
     dr, truth["drums"] = drums(44100)

@@ -100,7 +100,7 @@ third_party/     pinned ggml, cpp-httplib, single-header audio decoders
 | M1  | Song Deck uses JX Runtime for LLMs: preset, discovery, pairing (done 2026-10-18)                                                | Song Deck, JX Runtime         | none       | done       |
 | M2  | Audio-apps repository set up: shared core, server, page; transcriber running a placeholder model end to end (done, BackTrack 0.0.1) | Audio apps (Onyx as template) | none       | done       |
 | M3  | Training pipeline, including Song Deck's training-data export; first drum model; Transcriber 0.1 binaries; Song Deck preset (done 2026-10-19, released as BackTrack v0.1.0) | Audio apps, Song Deck | M2 | done |
-| M4  | Transcriber in WebAssembly inside Song Deck (`"model"` plugin kind); bass and melody models — **WebAssembly and Song Deck side built; pitched training built, models to train** | Song Deck, audio apps         | M3         | 3–5 weeks  |
+| M4  | Transcriber in WebAssembly inside Song Deck (`"model"` plugin kind); bass and melody models — **built; bass, melody and drums 0.2.0 trained (2026-10-24) and bundled in Song Deck; release 0.6.0 left** | Song Deck, audio apps         | M3         | 3–5 weeks  |
 | M5  | Separator 0.1: first model, binaries, Song Deck preset                                                                          | Audio apps, Song Deck         | M2         | 8–12 weeks |
 | M6  | JX Runtime runs the audio apps; Song Deck desktop runs JX Runtime in managed mode; JX Runtime becomes the default local runtime | JX Runtime, Song Deck         | M1, M3     | 3–4 weeks  |
 | M7  | Theory models: chords and key from audio (Surveil), then a harmony model and app; shareable npm package ([plan](./theory.md))  | Audio apps, Song Deck         | M3 (M4 for WebAssembly) | not sized |
@@ -123,6 +123,13 @@ M3 is done (2026-10-19): BackTrack v0.1.0 is released and Song Deck installs it 
   and the drum model), pinned in Song Deck's binary recipe (now at v0.4.0).
 - Left open: T2's "done when" asks for real recordings (E-GMD and the real test set are not
   scored yet), and GPU builds (Vulkan, Metal) wait for a CPU-fallback scheduler.
+
+M4 is built (2026-10-24): Surveil in WebAssembly inside Song Deck (v0.4.0), and the first bass and
+melody models, trained at home from the TRAIN tab with a new drum model beside them
+([weights/](../../weights/README.md)). On 60 unseen rendered songs per part, against Song Deck's
+built-in transcription: bass note F 0.47 against 0.21, instrumental leads 0.92 against 0.76, sung
+leads (Song Deck's guide singer) 0.68 against 0.37, drums 0.85 against 0.53. Song Deck bundles
+all three as model plugins. Left: releasing them (0.6.0), after which Song Deck moves its pin.
 
 M5 can start any time, but its training data (especially vocals) needs the longest lead time, so
 start sourcing data early.

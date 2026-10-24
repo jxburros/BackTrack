@@ -8,6 +8,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Bass and melody models** (`weights/surveil-bass-0.1.0.gguf`, `weights/surveil-melody-0.1.0.gguf`),
+  the first trained pitched models, trained at home from the TRAIN tab. On 60 unseen rendered
+  songs per part, against Song Deck's built-in transcription of the separated stems: bass note F
+  0.472 against 0.211; melody 0.917 against 0.757 on instrumental leads and 0.684 against 0.372 on
+  Song Deck's guide singer ([weights/README.md](weights/README.md)). Releases attach them beside
+  the drum model, and the desktop apps ship them.
+- `scripts/make-test-audio.py` also writes `lead.wav`, the test melody with eight partials: the
+  melody model hears the thinner `melody.wav` as no lead at all. The WebAssembly check and the
+  release workflow run each shipped model on its own part's clip.
+
+### Changed
+
+- **Drums 0.2.0** (`weights/surveil-drums-0.2.0.gguf`) replaces 0.1.0: the same network trained
+  on more songs and on ACE-Step performances, F 0.848 against 0.837 for 0.1.0 and 0.527 for Song
+  Deck's built-in transcription on 60 unseen rendered songs.
+- **ggml `f1aa6a3`** (0.27.0, was `36da571`), the revision Onyx Engine's llama.cpp pin (b11820)
+  synced. Every model still passes the PyTorch parity check; likelihoods move by up to 3e-3 and
+  three of about 1,800 test notes change.
+
 - **Degradation augmentation** (`training/augment.py`): `--augment room,noise,mic,compress,clip,wow,codec`
   (or `all`) and `--augment-copies N` on `train_drums` and `train_pitched` train on degraded copies
   of every training item as well as the clean ones, so models also work on phone, live and

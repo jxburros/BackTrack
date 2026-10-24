@@ -2,22 +2,25 @@
 
 What is done, what is in progress and what comes next, with every open issue placed on it. It
 sums up the [plans](docs/plans/overall.md), the [changelog](CHANGELOG.md) and the issues as of
-2026-10-22 (BackTrack 0.5.1). The plans keep the detail; update this page when a milestone moves
+2026-10-24 (BackTrack 0.6.0). The plans keep the detail; update this page when a milestone moves
 or an issue opens or closes.
 
 ## Where BackTrack stands
 
 - **Milestone M4** of the [overall plan](docs/plans/overall.md): Surveil runs inside Song Deck's
-  page (WebAssembly), and bass and melody models can be trained; none is trained yet.
-- **Trained:** one model, Surveil drums 0.1.0 ([weights/](weights/README.md)): F 0.813 against
-  Song Deck's built-in 0.495 on 38 held-out rendered songs. Not yet scored on E-GMD or real
-  recordings. Bass, melody and vocals use the placeholder model.
+  page (WebAssembly), and the bass and melody models are trained; releasing them is what is left.
+- **Trained** ([weights/](weights/README.md)), against Song Deck's built-in transcription on 60
+  unseen rendered songs per part: drums 0.2.0 F 0.848 against 0.527, bass 0.1.0 note F 0.472
+  against 0.211, melody 0.1.0 0.917 against 0.757 on instrumental leads and 0.684 against 0.372
+  on Song Deck's guide singer. Song Deck bundles all three as model plugins. None is scored on
+  E-GMD or real recordings yet. Piano, guitar and the full mix use the placeholder model.
 - **Ships (latest release v0.4.0):** `backtrack-surveil` CPU builds for linux-x64, darwin-arm64,
   darwin-x64 and win32-x64; the drum model; the WebAssembly build; desktop installers for
   BackTrack Surveil and the BackTrack hub with its TRAIN tab (not code-signed or notarized).
   Song Deck pins v0.4.0.
 - **Versioned, not released:** 0.5.0 (training libraries, the training queue, the training-data
-  research) and 0.5.1 (degradation augmentation, #17). The next release is the first through the
+  research), 0.5.1 (degradation augmentation, #17) and 0.6.0 (the bass, melody and drums 0.2.0
+  models; ggml `f1aa6a3`, Onyx Engine's). The next release is the first through the
   unified release workflow ([README](README.md#unified-release-procedure)), whose dry run and
   publication are not verified yet.
 - **Not built:** Explode (only [its README](apps/explode/README.md)), the theory models, GPU builds.
@@ -34,7 +37,7 @@ Status is **done**, **in progress**, **next** (start soon) or **later**.
 | M1 | Song Deck uses JX Runtime for LLMs                                     | done                         | none       | None                                                   |
 | M2 | Repository, shared core, server, page; Surveil on a placeholder model  | done (0.0.1)                 | none       | T0                                                     |
 | M3 | Training pipeline, drum model, Surveil 0.1 binaries, Song Deck preset  | done (v0.1.0)                | M2         | T1–T3; left open: T2's real-recording scores, GPU builds |
-| M4 | Surveil in WebAssembly inside Song Deck; bass and melody models        | in progress                  | M3         | T4 done; T5's models to train                          |
+| M4 | Surveil in WebAssembly inside Song Deck; bass and melody models        | done but the release         | M3         | T4 done; T5's models trained (0.6.0, not released)     |
 | M5 | Explode 0.1: first model, binaries, Song Deck preset                   | next (S0)                    | M2         | S0–S3                                                  |
 | M6 | JX Runtime runs the audio apps; Song Deck runs JX Runtime managed      | later                        | M1, M3     | Pinned releases and GGUF metadata, which exist; the work is in JX Runtime and Song Deck |
 | M7 | Theory models: chords and key in Surveil, a harmony app, an npm package | next (C0); the rest later | M3 (M4 for WebAssembly) | C0–C3, H0–H1                                |
@@ -45,10 +48,10 @@ Status is **done**, **in progress**, **next** (start soon) or **later**.
 | -- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------- |
 | T0 | Core, server, CLI, page, placeholder model                  | done (0.0.1)                                                                                | none                                               |
 | T1 | Training pipeline: reader, front end, parity check, GGUF    | done (0.1.0)                                                                                | T0                                                 |
-| T2 | Drum model                                                  | in progress: trained (0.1.0); to score on E-GMD (importable since 0.5.0) and a real test set | T1; a real drum test set                           |
+| T2 | Drum model                                                  | in progress: trained (0.2.0); to score on E-GMD (importable since 0.5.0) and a real test set | T1; a real drum test set                           |
 | T3 | Release 0.1                                                 | done for CPU (v0.1.0); GPU builds later                                                     | T2; GPU builds need a CPU-fallback scheduler       |
 | T4 | WebAssembly inside Song Deck                                | done (v0.4.0)                                                                               | T3; Song Deck's `model` plugin kind (built)        |
-| T5 | Bass, then melody and vocals                                | in progress: training built (`train_pitched`, TRAIN tab, libraries, augmentation); models to train at home | T1; Song Deck's `dataset:render` and `dataset:perform`; a real test set |
+| T5 | Bass, then melody and vocals                                | in progress: bass and melody 0.1.0 trained, ahead of Song Deck on renders; to score on a real test set | T1; Song Deck's `dataset:render` and `dataset:perform`; a real test set |
 | T6 | Song context in note picking                                | built (0.0.1); the gain with context on versus off is not measured                          | T0; Song Deck sends `context` (built)              |
 | T7 | Keys and guitar (polyphonic)                                | later                                                                                       | T5; a GuitarSet importer; a real test set          |
 
@@ -80,12 +83,12 @@ Status is **done**, **in progress**, **next** (start soon) or **later**.
 
 **Now**
 
-- Train the bass and melody models at home (T5, M4) from the TRAIN tab, with libraries and
-  degradation augmentation; install the best in Song Deck once it beats Song Deck's own
-  transcription.
+- Release 0.6.0 (with 0.5.0 and 0.5.1): the first run of the unified release workflow (dry run
+  first). It carries the bass, melody and drums 0.2.0 models; Song Deck then moves its pin from
+  v0.4.0 and vendors the release's WebAssembly build.
+- The next training round: bass is the weakest (note F 0.47); ACE-Step takes and degradation
+  augmentation for bass and melody, which their first models trained without.
 - Finish T2: score the drum model on E-GMD and on a real drum test set.
-- Release 0.5.0 and 0.5.1: the first run of the unified release workflow (dry run first). Song
-  Deck then moves its pin from v0.4.0.
 
 **Next**
 
@@ -128,7 +131,7 @@ Degradation augmentation (#17) shipped in 0.5.1 and the issue is closed. It left
 
 - **Song Deck** owns the bridge contracts (transcription, separation, the planned harmony one);
   BackTrack implements them. It pins BackTrack Surveil v0.4.0 for its one-click install and runs
-  Surveil's WebAssembly build with the drums model plugin, so a new release reaches its users
+  Surveil's WebAssembly build with the drums, bass and melody model plugins, so a new release reaches its users
   when Song Deck moves the pin. It renders the training data (`dataset:render`, 0.19.0 or later
   for `--separate-stems`; `dataset:perform` for ACE-Step takes); model plugins need 0.18.0 or
   later. Its round-trip lab now assigns tracks to finer stems (Song Deck #176, closed); its
@@ -136,7 +139,7 @@ Degradation augmentation (#17) shipped in 0.5.1 and the issue is closed. It left
   first ([Song Deck's side](https://github.com/jxburros/Song-Deck/blob/main/docs/plans/theory-models.md)).
 - **Onyx Engine:** the ggml pin (`packaging/vendor/ggml.conf`) is kept equal to the revision
   Onyx Engine's llama.cpp pin last synced; Onyx Engine's `scripts/check-ggml-pin.sh` gives the
-  commit. Its release convention (asset names, checksums) is what Song Deck's install expects.
+  commit. Both are at `f1aa6a3` (llama.cpp b11820) since 0.6.0. Its release convention (asset names, checksums) is what Song Deck's install expects.
 - **JX Runtime:** M6, where it installs and runs the audio apps.
 - **Release infrastructure:** the release workflow and toolkit are pinned to a shared commit
   ([.release/README.md](.release/README.md)).
