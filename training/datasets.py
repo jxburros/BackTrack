@@ -23,11 +23,12 @@ offset + the window's shift) and only the windows whose agreement F passes
 from __future__ import annotations
 
 import csv
-from bisect import bisect_right
 import json
+from bisect import bisect_right
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .chords import song_chords, song_keys
 from .midi import read_notes
 from .model import DRUM_CLASSES
 
@@ -62,6 +63,10 @@ class Item:
     regions: list | None = None
     # Pitched items (read_songdeck_notes): [(start, end, pitch, bend)], bend [(position 0..1, cents)] or None.
     notes: list = field(default_factory=list)
+    # Harmony items (read_songdeck_chords): [(start, end, root, quality, bass or None)] in Song
+    # Deck's qualities, and the keys [(time, (tonic, mode))]; see training/chords.py.
+    chords: list = field(default_factory=list)
+    keys: list = field(default_factory=list)
 
 
 def hits_from_notes(notes, mapping=GM_DRUMS) -> tuple[list, int]:
@@ -294,6 +299,36 @@ def _performed_pitched(root, song, notes, split, names, part, source, min_agreem
         st["accepted_seconds"] += region_seconds(it)
         st["providers"][f"{provider} {model}"] = st["providers"].get(f"{provider} {model}", 0) + 1
         items.append(it)
+    return items
+
+
+def read_songdeck_chords(root, audio: str = "mix") -> list[Item]:
+    """Each song's chords and keys (milestone C0), on the full mix ("mix") or on the summed clean
+    stems minus the drums ("harmonic"; songs written with --only-stems lack the other stems, so
+    it is for full renders). Songs without chords are left out."""
+    root = Path(root)
+    man = json.loads((root / "manifest.json").read_text())
+    if man.get("format") != "songdeck-dataset":
+        raise ValueError(f"{root}/manifest.json: format is not songdeck-dataset")
+    source = man.get("source") or f"Song Deck dataset {root.name} (Song Deck {man.get('songdeck_version', '?')}, {man.get('created', '?')}): {man.get('licence', '')}"
+    items = []
+    for song in man["songs"]:
+        chords = song_chords(song)
+        if not chords:
+            continue
+        if audio == "mix":
+            files = [root / song["mix"]]
+        elif audio == "harmonic":
+            files = [root / s["audio"] for s in song.get("stems", [])
+                     if s.get("audio") and not (s.get("drums") or s.get("stem") == "drums")]
+            if not files:
+                continue
+        else:
+            raise ValueError(f"unknown audio choice {audio!r} (mix or harmonic)")
+        split = song.get("split", "train")
+        split = "valid" if split == "validation" else split
+        items.append(Item(f"{song['id']}:{audio}", split, files, source=source,
+                          duration=float(song.get("duration", 0)), chords=chords, keys=song_keys(song)))
     return items
 
 

@@ -341,6 +341,23 @@ layout of the same graph. `npm run eval:datasets -- --transcriber model=<plugin 
 Deck compares a model with Song Deck's own transcription on its datasets (a model becomes a Song
 Deck plugin with a manifest naming the GGUF and its SHA-256; see Song Deck's `docs/PLUGINS.md`).
 
+## Chord and key labels (theory models, C0)
+
+`training/chords.py` is model A's labels and scores ([the plan](../docs/plans/theory.md)); there
+is no chord model yet. `datasets.read_songdeck_chords(DIR, audio="mix"|"harmonic")` gives one item
+per song with its chords `[(start, end, root, quality, bass)]` and keys `[(time, (tonic, mode))]`,
+from the manifest's structured fields (Song Deck 0.20.0) or, for older manifests, from the chord
+symbols (`parse_symbol`, the same aliases as Song Deck's parser). `model_quality` maps Song Deck's
+28 qualities onto the 14 its built-in detector knows (`QUALITIES`, the quality head's order):
+extensions drop to the chord under them (min9 → min7, 13 → 7), a seventh with no slot keeps its
+triad (minmaj7 → min), and the power chord has no quality, so only its root and bass train.
+`label_frames` turns a song into per-frame root, quality, bass and key targets (a frame takes the
+label at its centre; `IGNORE` where the loss should skip). `chord_counts`, `chord_scores` and
+`key_score` are the weighted chord symbol recall (root, major/minor, sevenths) and the weighted
+key score, defined as Song Deck's `eval:datasets --tasks chords,key` defines them, so a model's
+numbers compare with the built-in detector's. `python3 -m training.check_chords` checks it all (in
+CI).
+
 ## On Song Deck's drum export
 
 For a directory written by `npm run dataset:render` (e.g. `sd-drums-v1`: 400 songs of about

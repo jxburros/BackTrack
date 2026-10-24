@@ -131,6 +131,9 @@ jobs:
       - name: Degradation augmentation (labels in place, deterministic copies, noise levels, off unchanged; about 90 s)
         run: python -m training.check_augment --work "$RUNNER_TEMP/augment"
 
+      - name: Chord and key labels and scores (a fraction of a second)
+        run: python -m training.check_chords
+
   # wasm/: the WebAssembly build must give the native binary's notes.
   wasm:
     needs: build

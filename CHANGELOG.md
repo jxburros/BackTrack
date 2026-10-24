@@ -24,6 +24,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   low-bitrate MP3s. Off by default: runs without it are unchanged. **Check setup** says when
   ffmpeg is missing for the MP3 and Opus copies.
 
+- **Chord and key labels** for the theory models (milestone C0, `training/chords.py`): chord
+  symbol parsing, the map from Song Deck's 28 chord qualities to the 14 the built-in detector
+  knows, per-frame root, quality, bass and key targets, and the weighted chord symbol recall and
+  key score as Song Deck defines them; `datasets.read_songdeck_chords` reads a dataset's chords
+  and keys. Checked in CI by `training/check_chords.py`. The baseline to beat, Song Deck's
+  built-in detector on 60 unseen rendered songs: root 0.591, sevenths 0.441, key 0.785.
+
 ### Changed
 
 - **Drums 0.2.0** (`weights/surveil-drums-0.2.0.gguf`) replaces 0.1.0: the same network trained

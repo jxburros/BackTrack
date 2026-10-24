@@ -40,7 +40,7 @@ Status is **done**, **in progress**, **next** (start soon) or **later**.
 | M4 | Surveil in WebAssembly inside Song Deck; bass and melody models        | done but the release         | M3         | T4 done; T5's models trained (0.6.0, not released)     |
 | M5 | Explode 0.1: first model, binaries, Song Deck preset                   | next (S0)                    | M2         | S0–S3                                                  |
 | M6 | JX Runtime runs the audio apps; Song Deck runs JX Runtime managed      | later                        | M1, M3     | Pinned releases and GGUF metadata, which exist; the work is in JX Runtime and Song Deck |
-| M7 | Theory models: chords and key in Surveil, a harmony app, an npm package | next (C0); the rest later | M3 (M4 for WebAssembly) | C0–C3, H0–H1                                |
+| M7 | Theory models: chords and key in Surveil, a harmony app, an npm package | C0 done; C1 next          | M3 (M4 for WebAssembly) | C0–C3, H0–H1                                |
 
 ### Surveil, the transcriber ([plan](docs/plans/surveil.md))
 
@@ -71,8 +71,8 @@ Status is **done**, **in progress**, **next** (start soon) or **later**.
 
 | #  | What                                                                                  | Status | Depends on                                                                 |
 | -- | ------------------------------------------------------------------------------------- | ------ | -------------------------------------------------------------------------- |
-| C0 | Chord and key labels, vocabulary map, scoring; the built-in detector's baseline       | next: cheap, and decides whether model A is worth building | Song Deck: structured chords in the manifest, chord and key scoring in `eval:datasets` |
-| C1 | Model A on renders; `surveil-chords` graph with parity; `--model chords`              | later  | C0                                                                         |
+| C0 | Chord and key labels, vocabulary map, scoring; the built-in detector's baseline       | done: built-in root 0.59, sevenths 0.44, key 0.79 on unseen renders; model A is worth building | Song Deck: structured chords in the manifest, chord and key scoring in `eval:datasets` |
+| C1 | Model A on renders; `surveil-chords` graph with parity; `--model chords`              | next   | C0 (done)                                                                  |
 | C2 | Covers with a chord judge, GuitarSet, the owner's test set, WebAssembly, Song Deck plugin | later | C1; T4; Song Deck's chord judge and `task: "chords"` plugin            |
 | C3 | Release; the npm package                                                              | later  | C2                                                                         |
 | H0 | Harmony corpus with licence checks; harmony contract drafted                          | later  | C2 (model A labels ACE-Step songs); Song Deck's `dataset:harmony` and contract |
@@ -94,7 +94,8 @@ Status is **done**, **in progress**, **next** (start soon) or **later**.
 
 - Explode S0, which starts M5 ([what is left to write](apps/explode/README.md)).
 - Vocal training data for S1: decide the route and start sourcing; it has the longest lead time.
-- C0: chord and key labels and the built-in detector's baseline (both repositories).
+- C1: model A (chords and key) on renders, against C0's baseline (root 0.59, sevenths 0.44, key
+  0.79); `training/chords.py` has the labels and scores.
 - A real test set per stem type, bad recordings included (T2, T5, #17).
 - T6: measure the gain from song context.
 
@@ -170,7 +171,7 @@ of them now built:
 | [docs/plans/overall.md](docs/plans/overall.md) | The goal, decisions, milestones M0–M7, contracts and open decisions across the projects | Current |
 | [docs/plans/surveil.md](docs/plans/surveil.md) | Surveil: interfaces, how it works, models in order, training data, T0–T7 | Current |
 | [docs/plans/explode.md](docs/plans/explode.md) | Explode: interfaces, design, stems in order, training data, S0–S5 | Current; nothing built |
-| [docs/plans/theory.md](docs/plans/theory.md) | M7: the chords and key model, the harmony model and app, C0–C3 and H0–H2 | Current; not started |
+| [docs/plans/theory.md](docs/plans/theory.md) | M7: the chords and key model, the harmony model and app, C0–C3 and H0–H2 | Current; C0 done |
 | [apps/explode/README.md](apps/explode/README.md) | What S0 reuses from the core and what is left to write | Current |
 | [docs/training-data.md](docs/training-data.md) | Every dataset, instrument library and paid source checked, with licences (2026-10-20); degradation; faster renders | Current research |
 | [docs/training-at-home.md](docs/training-at-home.md) | Training at home step by step, the TRAIN tab, nightly runs | Current guide |

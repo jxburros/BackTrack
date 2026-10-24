@@ -222,6 +222,13 @@ New GGUF keys are written up in [`docs/gguf-metadata.md`](../gguf-metadata.md) a
 C0 is cheap and tells us how much room there is: if the built-in detector is already close on
 renders, the real-recording test set decides whether model A is worth building.
 
+**C0 is done (2026-10-24).** Song Deck's manifest carries structured chords and its
+`eval:datasets --tasks chords,key` scores chords and keys; here, `training/chords.py` has the
+vocabulary map, label frames and the same scores, and `datasets.read_songdeck_chords` reads
+them. The baseline: on 60 unseen songs rendered by Song Deck 0.19.1 (seed 900000, 60 s, full mixes), Song Deck's chord stage alone gets root 0.591, major/minor 0.496, sevenths 0.441 and root and quality exact 0.300 (labelled 77% of the time), and its key detector a weighted 0.785 (68% exactly right). That is far from solved even on
+Song Deck's own renders, so model A (C1) is worth building; a sevenths score near 0.44 and a key
+right two times in three leave the most room.
+
 ## Open decisions
 
 - **Name** of the harmony app (and so its binary, preset and release assets).
