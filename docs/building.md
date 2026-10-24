@@ -16,7 +16,7 @@ python3 scripts/smoke-test.py   # CLI and HTTP server, end to end
 ## ggml
 
 Both apps run on standalone [ggml](https://github.com/ggml-org/ggml), pinned in
-`packaging/vendor/ggml.conf` to `36da571`: the revision Onyx Engine's llama.cpp pin last
+`packaging/vendor/ggml.conf` to `f1aa6a3` (ggml 0.27.0): the revision Onyx Engine's llama.cpp pin last
 synced, so a ggml fix or a new GPU backend reaches Onyx Engine and BackTrack together. The
 vendoring scripts are Onyx Engine's, copied unchanged (`packaging/make-vendor-package.sh`,
 `packaging/vendor/lib.sh`, `scripts/vendor.sh`, `scripts/install-vendor.js`); only the spec file
