@@ -35,6 +35,9 @@ pub struct Settings {
     pub queue: Vec<String>, // kinds to train one after another (ONE AFTER ANOTHER)
     pub start_at: String,   // "HH:MM" for the queue to wait for, or empty to start now
     pub libraries: Vec<String>, // outside datasets to train on too (training/libraries.py ids)
+    pub augment: Vec<String>, // degradation kinds (training/augment.py) for degraded copies; empty: off
+    pub augment_copies: u32,  // degraded copies of each training item, 1-4
+    pub augment_noise: String, // a folder of your own noise recordings (WAV), or empty
 }
 
 impl Default for Settings {
@@ -56,6 +59,9 @@ impl Default for Settings {
             queue: vec!["drums".into(), "bass".into(), "melody".into()],
             start_at: String::new(),
             libraries: Vec::new(),
+            augment: Vec::new(),
+            augment_copies: 1,
+            augment_noise: String::new(),
         }
     }
 }
@@ -658,6 +664,32 @@ pub async fn train_check(app: AppHandle, settings: Settings) -> Vec<Check> {
             );
         }
     }
+
+    // Worse recordings (train.augment): ffmpeg for the MP3 and Opus copies, the noise folder.
+    let kinds = augment_kinds(&s);
+    if !kinds.is_empty() {
+        let copies = s.augment_copies.clamp(1, 4);
+        let what = format!(
+            "{copies} degraded {} of each training song ({})",
+            if copies == 1 { "copy" } else { "copies" },
+            kinds.join(", ")
+        );
+        match augment_noise(&s) {
+            Some(d) if !d.is_dir() => push(
+                "Worse recordings",
+                "fail",
+                format!("no folder {}: choose your noise recordings again, or leave it empty", d.display()),
+                None,
+            ),
+            _ if kinds.contains(&"codec") && which("ffmpeg").is_none() => push(
+                "Worse recordings",
+                "warn",
+                format!("{what}. ffmpeg not found: the MP3 and Opus copies are skipped, the rest run (install ffmpeg to have them)."),
+                None,
+            ),
+            _ => push("Worse recordings", "ok", what, None),
+        }
+    }
     out
 }
 
@@ -766,6 +798,33 @@ fn config_path(s: &Settings) -> PathBuf {
     }
 }
 
+/// The degradation kinds, in training/augment.py's order (ORDER).
+const AUGMENT: [&str; 7] = ["room", "noise", "mic", "compress", "clip", "wow", "codec"];
+
+/// The ticked degradation kinds, in augment.py's order; unknown ones are left out.
+fn augment_kinds(s: &Settings) -> Vec<&'static str> {
+    AUGMENT
+        .into_iter()
+        .filter(|k| s.augment.iter().any(|a| a == k))
+        .collect()
+}
+
+/// The noise recordings folder, when `noise` is ticked and one is set.
+fn augment_noise(s: &Settings) -> Option<PathBuf> {
+    let dir = s.augment_noise.trim();
+    (!dir.is_empty() && augment_kinds(s).contains(&"noise")).then(|| expand(dir))
+}
+
+/// train.augment (training/pipeline.py): no kinds ticked is off, and the run is the same as
+/// before augmentation existed (same fingerprint, no copies).
+fn augment_config(s: &Settings) -> serde_json::Value {
+    serde_json::json!({
+        "use": augment_kinds(s),
+        "copies": s.augment_copies.clamp(1, 4),
+        "noise_dir": augment_noise(s),
+    })
+}
+
 /// The pipeline's config, from the settings; everything else keeps the pipeline's defaults
 /// (training/pipeline.py DEFAULTS, the same as training/pipeline.example.json).
 fn write_config(app: &AppHandle, s: &Settings, python: &str) -> Result<PathBuf, String> {
@@ -796,7 +855,11 @@ fn write_config(app: &AppHandle, s: &Settings, python: &str) -> Result<PathBuf, 
         "model": { "kind": kind(s), "name": name, "version": "0.1.0", "file_stem": format!("surveil-{}", kind(s)) },
         "render": { "songs": s.songs.max(50), "only_stems": stems, "keep_separated": keep },
         "perform": { "enabled": s.use_acestep, "server": server },
-        "train": { "epochs": s.epochs.max(1), "device": s.device, "audio": "stem,separated,performed" },
+        "train": {
+            "epochs": s.epochs.max(1), "device": s.device, "audio": "stem,separated,performed",
+            // Degraded copies of the training items (phone, live, tape, MP3); off by default.
+            "augment": augment_config(s),
+        },
         // Downloaded and imported once into the data folder by the pipeline's libraries step.
         "libraries": { "dir": data.join("libraries"), "use": s.libraries, "fetch": true },
     });

@@ -551,6 +551,11 @@ or Opus, compression and clipping, a little wow and flutter) on top of the clean
 "train": { "augment": { "use": "all", "copies": 1 } }
 ```
 
+In the desktop app, tick the kinds (or **All of them**) under **Worse recordings** in the TRAIN tab,
+set **Copies of each song** (1 to 4) and, with **Noise**, optionally a folder of your own noise
+recordings (WAV; `noise_dir`). Nothing ticked is off, as before. **Check setup** says when ffmpeg
+is missing for **Codec**.
+
 Each copy is made once and cached next to the clean features, so it costs as much disk again as
 the training songs' feature cache (about 3.5 GB per copy for the default 400 songs with one take
 each) and two to four times as long to compute, once; epochs take no longer. The MP3 and Opus

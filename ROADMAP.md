@@ -97,7 +97,6 @@ Status is **done**, **in progress**, **next** (start soon) or **later**.
 - C0: chord and key labels and the built-in detector's baseline (both repositories).
 - A real test set per stem type, bad recordings included (T2, T5, #17).
 - T6: measure the gain from song context.
-- An augmentation control in the TRAIN tab (#17).
 
 **Later**
 
@@ -118,13 +117,14 @@ Status is **done**, **in progress**, **next** (start soon) or **later**.
 
 ## Follow-ups from #17
 
-Degradation augmentation (#17) shipped in 0.5.1 and the issue is closed. It left four things:
+Degradation augmentation (#17) shipped in 0.5.1 and the issue is closed. It left four things, one
+of them now built:
 
 | Follow-up | State | Where it sits |
 | --------- | ----- | ------------- |
 | The separator side: noise as an extra source for "other"; codec and room damage on the mix only, with clean stems as targets | Not built: Explode doesn't exist yet | S1, reusing `training/augment.py` ([training data §6](docs/training-data.md#6-worse-recordings-noise-and-degradation)) |
 | On-the-fly features (the issue's option 2): fresh degraded features for part of each batch | Not built; worth it only if the degraded copies prove not enough | Later; `training/features.py` |
-| An augmentation control in the desktop TRAIN tab | Not built: the pipeline reads `train.augment` from its config, but the tab has no control for it | Next; `desktop/src-tauri/src/train.rs` and the hub page |
+| An augmentation control in the desktop TRAIN tab | Built: **Worse recordings** in the TRAIN tab (the kinds, 1–4 copies, your own noise folder) writes `train.augment` | Done; `desktop/src-tauri/src/train.rs` and the hub page |
 | Measuring the gain on a real bad-recording test set | The pipeline scores one (`evaluate.bad_recordings.dataset`); the set still has to be recorded ([how](docs/training-data.md#6-worse-recordings-noise-and-degradation)) | Next, with T2's and T5's real test sets |
 
 ## Cross-repository dependencies

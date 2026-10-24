@@ -65,6 +65,25 @@
         <label class="bt-check"><input type="checkbox" data-library="slakh2100"><span class="bt-label">Slakh2100: 145 h of rendered songs (drums, bass, melody; 105 GB)</span></label>
         <label class="bt-check"><input type="checkbox" data-library="babyslakh"><span class="bt-label">BabySlakh: 20 Slakh songs, to try it (1 GB)</span></label>
       </fieldset>
+      <fieldset class="train-wide train-libraries"><legend class="bt-label">Worse recordings (off when nothing is ticked)</legend>
+        <p class="train-note">Also trains on damaged copies of the songs, so the model works on phone, live and rehearsal
+          recordings, old tapes and low-bitrate MP3s too. The copies are made once, before training starts, which takes
+          longer the more copies: each takes two to four times as long as preparing the clean songs, and about 3.5 GB of
+          disk for 400 songs.</p>
+        <label class="bt-check"><input type="checkbox" id="t-augment-all"><span class="bt-label">All of them</span></label>
+        <label class="bt-check"><input type="checkbox" data-augment="room"><span class="bt-label">Room: echo of a small or large room</span></label>
+        <label class="bt-check"><input type="checkbox" data-augment="noise"><span class="bt-label">Noise: hiss, hum, room tone, crowd</span></label>
+        <label class="bt-check"><input type="checkbox" data-augment="mic"><span class="bt-label">Mic: a phone's or a cheap mic's sound</span></label>
+        <label class="bt-check"><input type="checkbox" data-augment="compress"><span class="bt-label">Compress: heavy compression</span></label>
+        <label class="bt-check"><input type="checkbox" data-augment="clip"><span class="bt-label">Clip: distortion from recording too loud</span></label>
+        <label class="bt-check"><input type="checkbox" data-augment="wow"><span class="bt-label">Wow: wobble of an old tape</span></label>
+        <label class="bt-check"><input type="checkbox" data-augment="codec"><span class="bt-label">Codec: MP3 and Opus at low bitrates (needs ffmpeg; skipped without it)</span></label>
+        <div class="train-grid">
+          <label class="bt-field"><span class="bt-label">Copies of each song</span><input class="bt-input" id="t-augment-copies" type="number" min="1" max="4"></label>
+          <label class="bt-field train-wide" id="t-augment-noise-row"><span class="bt-label">Your own noise recordings (a folder of WAVs; optional)</span>
+            <span class="train-path"><input class="bt-input" id="t-augment-noise" placeholder="empty: built-in noises only"><button class="bt-btn bt-btn--ghost bt-btn--small" type="button" data-pick="t-augment-noise">Choose…</button></span></label>
+        </div>
+      </fieldset>
     </div>
     <div class="train-actions">
       <button class="bt-btn bt-btn--ghost" type="button" id="t-check">Check setup</button>

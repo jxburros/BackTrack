@@ -10,6 +10,7 @@
   const fields = {
     songdeck: 't-songdeck', acestep: 't-acestep', python: 't-python', data: 't-data',
     songs: 't-songs', epochs: 't-epochs', device: 't-device', kind: 't-kind',
+    augment_copies: 't-augment-copies', augment_noise: 't-augment-noise',
   };
   const MODEL = { drums: 'drums', bass: 'bass', melody: 'melody' };
   const KIND = {
@@ -30,17 +31,27 @@
     $('t-acestep-row').hidden = !settings.use_acestep;
   }
 
+  // WORSE RECORDINGS (train.augment): ALL OF THEM follows the kinds; the noise folder shows with Noise.
+  const augmentBoxes = () => [...document.querySelectorAll('[data-augment]')];
+  function showAugment() {
+    const on = augmentBoxes().filter((b) => b.checked);
+    $('t-augment-all').checked = on.length === augmentBoxes().length;
+    $('t-augment-noise-row').hidden = !on.some((b) => b.dataset.augment === 'noise');
+  }
+
   function read() {
     const s = { ...settings };
     for (const [k, id] of Object.entries(fields)) {
       const v = $(id).value.trim();
       s[k] = k === 'songs' ? Math.max(50, parseInt(v, 10) || settings[k])
-        : k === 'epochs' ? Math.max(1, parseInt(v, 10) || settings[k]) : v;
+        : k === 'epochs' ? Math.max(1, parseInt(v, 10) || settings[k])
+        : k === 'augment_copies' ? Math.min(4, Math.max(1, parseInt(v, 10) || settings[k] || 1)) : v;
     }
     s.use_acestep = $('t-use-acestep').checked;
     s.queue = [...document.querySelectorAll('[data-queue]')].filter((b) => b.checked).map((b) => b.dataset.queue);
     s.start_at = $('t-start-at').value;
     s.libraries = [...document.querySelectorAll('[data-library]')].filter((b) => b.checked).map((b) => b.dataset.library);
+    s.augment = augmentBoxes().filter((b) => b.checked).map((b) => b.dataset.augment);
     return s;
   }
 
@@ -50,13 +61,17 @@
     for (const b of document.querySelectorAll('[data-queue]')) b.checked = (settings.queue || []).includes(b.dataset.queue);
     $('t-start-at').value = settings.start_at || '';
     for (const b of document.querySelectorAll('[data-library]')) b.checked = (settings.libraries || []).includes(b.dataset.library);
+    for (const b of augmentBoxes()) b.checked = (settings.augment || []).includes(b.dataset.augment);
     showKind();
+    showAugment();
   }
 
   async function save() {
     const kindChanged = settings && settings.kind !== $('t-kind').value;
     settings = read();
+    $('t-augment-copies').value = settings.augment_copies;
     showKind();
+    showAugment();
     if (kindChanged) { $('t-log').textContent = ''; next = 0; }
     try { await invoke('train_save', { settings }); } catch { /* the next start says why */ }
   }
@@ -66,6 +81,11 @@
   for (const b of document.querySelectorAll('[data-queue]')) b.addEventListener('change', save);
   $('t-start-at').addEventListener('change', save);
   for (const b of document.querySelectorAll('[data-library]')) b.addEventListener('change', save);
+  for (const b of augmentBoxes()) b.addEventListener('change', save);
+  $('t-augment-all').addEventListener('change', () => {
+    for (const b of augmentBoxes()) b.checked = $('t-augment-all').checked;
+    save();
+  });
   for (const b of document.querySelectorAll('[data-pick]')) {
     b.addEventListener('click', async () => {
       const input = $(b.dataset.pick);

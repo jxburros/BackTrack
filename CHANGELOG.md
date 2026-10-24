@@ -17,6 +17,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `scripts/make-test-audio.py` also writes `lead.wav`, the test melody with eight partials: the
   melody model hears the thinner `melody.wav` as no lead at all. The WebAssembly check and the
   release workflow run each shipped model on its own part's clip.
+- **Worse recordings in the TRAIN tab:** tick the degradation kinds (room, noise, mic, compress,
+  clip, wow, codec, or all of them), the copies of each song (1–4) and optionally a folder of your
+  own noise recordings, and the hub writes them to the pipeline's `train.augment`, so models
+  trained from the desktop app also work on phone, live and rehearsal recordings, old tapes and
+  low-bitrate MP3s. Off by default: runs without it are unchanged. **Check setup** says when
+  ffmpeg is missing for the MP3 and Opus copies.
 
 ### Changed
 

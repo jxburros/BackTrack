@@ -32,6 +32,7 @@ body.hub { min-height: 100vh; display: flex; flex-direction: column; }
 .train-actions { display: flex; flex-wrap: wrap; gap: var(--bt-s3); }
 .train-libraries { border: 0; margin: 0; padding: 0; display: grid; gap: var(--bt-s2); }
 .train-libraries legend { padding: 0; margin-bottom: var(--bt-s2); }
+.train-note { max-width: 70ch; font: 400 14px/1.45 var(--bt-font-work); }
 .train-checks, .train-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--bt-s2); }
 .train-checks:empty { display: none; }
 .train-checks li { display: flex; align-items: center; gap: var(--bt-s3); flex-wrap: wrap; font: 400 15px/1.4 var(--bt-font-work); overflow-wrap: anywhere; }
