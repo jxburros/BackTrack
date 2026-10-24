@@ -56,7 +56,9 @@ for (const f of readdirSync(weights).filter((f) => f.endsWith('.gguf'))) {
   const id = f.replace(/\.gguf$/, '');
   const model = surveil.loadModel(readFileSync(join(weights, f)), id);
   check(model.info.id === id && model.info.stems.length > 0, `${id} loads (${model.info.kind}, ${model.info.stems.join(', ')})`);
-  models.push({ label: id, model, clip: `${model.info.stems[0]}.wav`, source: model.info.stems[0], arg: join(weights, f) });
+  const source = model.info.stems[0];
+  const clip = source === 'drums' || source === 'bass' ? `${source}.wav` : 'lead.wav';
+  models.push({ label: id, model, clip, source, arg: join(weights, f) });
 }
 
 for (const m of models) {

@@ -114,7 +114,13 @@ jobs:
       run: |
         python scripts/make-test-audio.py test-audio
         for model in weights/*.gguf; do
-          "${{ steps.locate.outputs.path }}" test-audio/drums.wav --stem drums --model "$model" -o drums.mid --json - --quiet > out.json
+          # Each model on its own part: surveil-<kind>-<version>.gguf
+          case "$(basename "$model")" in
+            surveil-drums-*) stem=drums clip=drums.wav ;;
+            surveil-bass-*) stem=bass clip=bass.wav ;;
+            *) stem=melody clip=lead.wav ;;
+          esac
+          "${{ steps.locate.outputs.path }}" "test-audio/$clip" --stem "$stem" --model "$model" -o out.mid --json - --quiet > out.json
           python -c "import json,sys; d=json.load(open('out.json')); sys.exit(0 if d['notes'] else 'no notes from $model')"
         done
     - name: Check release dynamic dependencies

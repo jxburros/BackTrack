@@ -13,13 +13,13 @@ Each works on its own (command line, or the page the binary serves) and as a pro
 transcription bridge contracts. Everything runs locally on [ggml](https://github.com/ggml-org/ggml),
 with weights in GGUF; no Python at run time.
 
-> **Status: milestone M4.** Surveil has its first trained model, **drums**
-> ([weights/](weights/README.md): F 0.81 against Song Deck's built-in 0.50 on held-out rendered
-> songs), and runs in WebAssembly inside Song Deck ([wasm/](wasm/README.md)). Bass, melody and
-> vocal models train with `training.train_pitched`; until they are trained, those stems use the
-> placeholder model (hand-set weights). Training runs from `training/`, at home too
-> ([docs/training-at-home.md](docs/training-at-home.md)). See [the plan](docs/plans/overall.md)
-> and [the roadmap](ROADMAP.md).
+> **Status: milestone M4.** Surveil has trained models for **drums**, **bass** and **melody**
+> (lead lines and vocals), each well ahead of Song Deck's built-in transcription on unseen rendered
+> songs ([weights/](weights/README.md): drums F 0.85 against 0.53, bass 0.47 against 0.21, sung
+> leads 0.68 against 0.37), and runs in WebAssembly inside Song Deck ([wasm/](wasm/README.md)).
+> Other stems (piano, guitar, the full mix) use the placeholder model (hand-set weights). Training
+> runs from `training/`, at home too ([docs/training-at-home.md](docs/training-at-home.md)). See
+> [the plan](docs/plans/overall.md) and [the roadmap](ROADMAP.md).
 
 ## Quick start
 
@@ -31,7 +31,7 @@ installed in one window. See [the desktop apps](docs/desktop.md).
 **Command line:** unpack the archive for your platform and run `backtrack-surveil serve`, then
 open http://127.0.0.1:8826. On Windows you can also double-click `backtrack-surveil.exe`: it
 starts the server and opens the page; keep its window open while you use it. To use a
-downloaded model such as `surveil-drums-0.1.0.gguf`, put it in a `models` folder next to the
+downloaded model such as `surveil-drums-0.2.0.gguf`, put it in a `models` folder next to the
 binary.
 
 From source:

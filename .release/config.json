@@ -46,7 +46,9 @@
         "backtrack-surveil-v{version}-linux-x64.tar.gz",
         "backtrack-surveil-v{version}-win32-x64.zip",
         "backtrack-surveil-wasm-v{version}.zip",
-        "surveil-drums-0.1.0.gguf"
+        "surveil-bass-0.1.0.gguf",
+        "surveil-drums-0.2.0.gguf",
+        "surveil-melody-0.1.0.gguf"
       ],
       "security": "standard",
       "checksumFile": "checksums.txt",
