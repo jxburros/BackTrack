@@ -5,7 +5,7 @@
 Both apps serve Song Deck's bridge contracts (`packages/ai/src/contracts.ts` in Song Deck; Song
 Deck owns them) through the shared layer in `server/`, which follows the same rules as Song
 Deck's own Python bridges (`bridges/songdeck_bridge/server.py`). This page covers BackTrack
-Surveil; BackTrack Explode will add `POST /separate` on port 8827 (S0).
+Surveil, then [BackTrack Explode](#backtrack-explode) (`POST /separate`, port 8827).
 
 ```
 backtrack-surveil serve              # http://127.0.0.1:8826, page at /
@@ -142,3 +142,82 @@ wait is the front end and the model:
 Song Deck's transcription adapter (`packages/ai/src/adapters/transcription-http.ts`) works as
 is: add a transcription provider with base URL `http://127.0.0.1:8826`. A one-click preset is
 milestone T3.
+
+## BackTrack Explode
+
+```
+backtrack-explode serve              # http://127.0.0.1:8827, page at /
+```
+
+The rules above apply unchanged (bind address, auth, CORS, errors, jobs, body size).
+
+### `POST /separate`
+
+Song Deck's `SeparationBridgeRequest`, plus `passes` and `format`:
+
+```jsonc
+{
+  "audio_base64": "<WAV, FLAC or MP3 bytes, base64>",
+  "stems": ["drums", "bass", "vocals", "other"],  // optional: default GET /info's "stems"
+  "model": "placeholder",      // optional: a model id from /info
+  "augment": true,             // optional: average 2 passes (plain, then flipped and swapped)
+  "passes": 3,                 // optional, 1-4, overrides augment: plain, flip + swap, flip, swap
+  "format": "pcm16"            // optional: pcm16 (default), pcm24 or float32
+}
+```
+
+Response, Song Deck's `SeparationBridgeResponse` plus details:
+
+```jsonc
+{
+  "stems": { "vocals": "<WAV base64>", "drums": "...", "bass": "...", "other": "..." },
+  "model": "placeholder",
+  "passes": 2,
+  "placeholder": true,
+  "sample_rate": 44100,        // every stem: 44.1 kHz stereo, as long as the input
+  "seconds": 221.4,
+  "chunks": 12
+}
+```
+
+Which stems come back:
+
+- The ones asked for, in that order. A stem the model can't make is a 400 that lists what it
+  can make (Song Deck's adapter drops those before asking, from `/info`).
+- `other` or `instrumental` holds everything not in the other stems asked for, so
+  `["vocals", "instrumental"]` is a two-stem split. Asking for both is a 400.
+- When neither is asked for, `other` is added with the rest, so the stems always sum to the mix:
+  `["vocals"]` gives `vocals` and `other`.
+
+The stems sum to the input resampled to 44.1 kHz stereo (mono is doubled; with more channels,
+even ones go left and odd ones right), exactly in `float32` and to within the rounding of each
+stem in `pcm16` and `pcm24`.
+
+While a job runs, `GET /health` reports its `stage` as `decode`, `resample`, then
+`chunk 3/12, pass 1/2` per chunk and pass, then `stems` and `encode`.
+
+### `GET /info`
+
+```jsonc
+{
+  "name": "BackTrack Explode", "app": "explode", "version": "0.7.0", "role": "separation",
+  "models": [
+    { "id": "placeholder", "name": "Explode placeholder (masks, no training)",
+      "stems": ["vocals", "drums", "bass", "other"], "on_request_stems": ["instrumental"],
+      "placeholder": true, "license": "MIT", "version": "0.7.0" }
+  ],
+  "model": "placeholder",                            // the default model
+  "stems": ["vocals", "drums", "bass", "other"],     // the default model's, as Song Deck reads them
+  "on_request_stems": ["instrumental"],
+  "sample_rate": 44100, "device": "CPU", "augment": true, "max_passes": 4,
+  "formats": ["pcm16", "pcm24", "float32"],
+  "capabilities": ["SOURCE_SEPARATION", "VOCAL_ISOLATION", "STEM_OUTPUT"]
+}
+```
+
+### Using it from Song Deck
+
+Song Deck's separation adapter (`packages/ai/src/adapters/separation-http.ts`) works as is: add
+a separation provider with base URL `http://127.0.0.1:8827`. It reads `stems` and
+`on_request_stems` from `/info`, so asking for guitar gets the other stems with guitar left in
+`other`. A one-click preset is milestone S3, with the first release.

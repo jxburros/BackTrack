@@ -145,6 +145,63 @@
   </section>
 </template>
 
+<template id="view-explode">
+  <section class="bt-panel ex" aria-labelledby="ex-title">
+    <div class="bt-hazard" aria-hidden="true"></div>
+    <div class="ex-body">
+      <header class="ex-head">
+        <h1 class="bt-app-title bt-toner" id="ex-title">EXPLODE</h1>
+        <div class="ex-file">
+          <div class="bt-label" id="ex-file-line">NO TRACK YET</div>
+          <div class="bt-caption" id="ex-file-sub">stems sum back to the mix.</div>
+        </div>
+      </header>
+
+      <label class="bt-dropzone bt-torn ex-drop" id="drop">
+        <span id="drop-text">WAV / FLAC / MP3 — or click to pick</span>
+        <input class="bt-sr-only" id="file" type="file" accept=".wav,.flac,.mp3,audio/wav,audio/x-wav,audio/flac,audio/mpeg">
+      </label>
+
+      <div class="ex-settings">
+        <fieldset class="ex-stems-pick">
+          <legend class="bt-label">Stems</legend>
+          <div class="ex-checks" id="stem-picks"></div>
+        </fieldset>
+        <label class="bt-field">
+          <span class="bt-label">Model</span>
+          <span class="bt-select"><select id="model"></select></span>
+        </label>
+        <label class="bt-check">
+          <input id="augment" type="checkbox">
+          <span class="bt-label">Two passes (flip + swap)</span>
+        </label>
+      </div>
+      <p class="bt-label ex-warn" id="placeholder-note" hidden>Placeholder model: masks from the stereo field and the sound's shape, no training. Expect rough stems.</p>
+
+      <div class="ex-stems" id="stems" hidden></div>
+      <div class="ex-transport" id="transport" hidden>
+        <button class="bt-btn bt-btn--ghost bt-btn--small" id="play" type="button">[ Play ]</button>
+        <span class="bt-readout" id="clock">00:00.0 / 00:00.0</span>
+        <button class="bt-btn bt-btn--ghost bt-btn--small ex-save-all" id="save-all" type="button">[ Save all stems ]</button>
+      </div>
+
+      <div class="ex-run">
+        <div class="ex-progress" id="progress-row" hidden>
+          <div class="bt-progress" id="progress" role="progressbar" aria-label="Separation progress"
+               aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="bt-progress__bar" id="progress-bar" style="width:0%"></div></div>
+          <div class="bt-progress__meta" id="progress-meta">WAITING</div>
+        </div>
+        <div class="ex-run__actions">
+          <span class="bt-scrawl" aria-hidden="true">boom.</span>
+          <button class="bt-btn bt-btn--ghost" id="cancel" type="button" hidden>Cancel</button>
+          <button class="bt-btn bt-btn--detonate" id="go" type="button" disabled>Detonate</button>
+        </div>
+      </div>
+      <div class="ex-status" id="status" aria-live="polite"></div>
+    </div>
+  </section>
+</template>
+
 <script src="waveform.js"></script>
 <script src="app.js"></script>
 </body>

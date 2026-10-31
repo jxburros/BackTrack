@@ -1,6 +1,7 @@
 // Unit tests for the parts that are easy to get silently wrong: file
 // formats, the front end's bin placement, music parsing, and the placeholder
 // pipeline end to end. Run with ctest or ./build/backtrack-tests.
+#include "explode.h"
 #include "surveil.h"
 
 #include "backtrack/audio.h"
@@ -9,6 +10,7 @@
 #include "backtrack/hcqt.h"
 #include "backtrack/midi.h"
 #include "backtrack/music.h"
+#include "backtrack/stft.h"
 
 #include "ggml-backend.h"
 #include "ggml.h"
@@ -362,6 +364,107 @@ void test_context() {
     expect_throw([] { surveil::parse_context({{"monophonic", "yes"}}); }, "non-boolean monophonic is a 400");
 }
 
+// The STFT gives the signal back, and Explode's stems sum to the mix whatever the input's
+// rate, channel count and length, over chunk boundaries and averaged passes.
+void test_stft_and_explode() {
+    std::mt19937 rng(7);
+    std::uniform_real_distribution<float> u(-0.5f, 0.5f);
+    for (size_t len : {size_t(1), size_t(700), size_t(44100)}) {
+        std::vector<float> l(len), r(len), bl(len), br(len);
+        for (size_t i = 0; i < len; i++) { l[i] = u(rng); r[i] = u(rng); }
+        backtrack::Stft stft(2048, 512);
+        backtrack::Spectrum sl, sr;
+        stft.forward(l.data(), r.data(), len, sl, sr);
+        stft.inverse(sl, sr, len, bl.data(), br.data());
+        float err = 0;
+        for (size_t i = 0; i < len; i++) err = std::max(err, std::max(std::fabs(bl[i] - l[i]), std::fabs(br[i] - r[i])));
+        check(err < 1e-5f, "STFT round trip, " + std::to_string(len) + " samples (error " + std::to_string(err) + ")");
+    }
+    {   // A real sine lands in its bin, in the left channel only.
+        const size_t len = 8192;
+        std::vector<float> l(len), r(len, 0.f);
+        for (size_t i = 0; i < len; i++) l[i] = std::sin(2.0 * 3.14159265358979 * 64 * i / 2048.0);
+        backtrack::Stft stft(2048, 512);
+        backtrack::Spectrum sl, sr;
+        stft.forward(l.data(), r.data(), len, sl, sr);
+        const size_t mid = size_t(stft.frames(len) / 2) * size_t(stft.bins());
+        int peak = 0;
+        for (int k = 1; k < stft.bins(); k++) if (std::abs(sl[mid + k]) > std::abs(sl[mid + peak])) peak = k;
+        float right = 0;
+        for (int k = 0; k < stft.bins(); k++) right = std::max(right, std::abs(sr[mid + k]));
+        check(peak == 64 && right < 1e-3f, "STFT: a sine in its bin, the other channel silent");
+    }
+
+    explode::Registry reg;
+    const explode::Model & model = reg.get("");
+    const explode::ModelInfo & info = model.info();
+    auto plan = explode::plan_stems(info, {});
+    check(plan.outputs == info.stems, "default stems are the model's");
+    plan = explode::plan_stems(info, {"vocals", "instrumental"});
+    check(plan.outputs == std::vector<std::string>({"vocals", "instrumental"}) && plan.target == std::vector<int>({0, 1, 1, 1}),
+          "vocals + instrumental: everything else is instrumental");
+    plan = explode::plan_stems(info, {"drums", "drums"});
+    check(plan.outputs == std::vector<std::string>({"drums", "other"}), "a stem asked for alone gets an 'other' with the rest");
+    expect_throw([&] { explode::plan_stems(info, {"other", "instrumental"}); }, "other and instrumental together are a 400");
+    expect_throw([&] { explode::plan_stems(info, {"kazoo"}); }, "an unknown stem is a 400");
+    expect_throw([&] { reg.get("nope"); }, "an unknown model is a 404");
+
+    struct Case { int rate, channels; double seconds; int passes; std::vector<std::string> stems; };
+    for (const Case & c : {Case{44100, 2, 5.5, 2, {}}, Case{22050, 1, 3.0, 1, {"vocals", "instrumental"}},
+                           Case{48000, 3, 1.0, 4, {"bass"}}, Case{44100, 2, 0.01, 1, {}}}) {
+        backtrack::Audio a;
+        a.sample_rate = c.rate;
+        a.channels = c.channels;
+        a.samples.resize(size_t(c.seconds * c.rate) * size_t(c.channels));
+        for (size_t i = 0; i < a.samples.size(); i++) {
+            const double t = double(i / size_t(c.channels)) / c.rate;
+            a.samples[i] = 0.3f * float(std::sin(2 * 3.14159265358979 * (110 + 220 * (i % size_t(c.channels))) * t)) + 0.1f * u(rng);
+        }
+        explode::Options opt;
+        opt.stems = c.stems;
+        opt.passes = c.passes;
+        opt.chunk_seconds = 2.0;  // several chunks, so the crossfades are tested
+        opt.overlap_seconds = 0.5;
+        explode::Result res = explode::separate(a, model, opt);
+        float err = 0, energy = 0;
+        bool shaped = res.mix.sample_rate == explode::kSampleRate && res.mix.channels == 2;
+        for (const auto & s : res.stems) shaped = shaped && s.samples.size() == res.mix.samples.size() && s.channels == 2;
+        for (size_t i = 0; shaped && i < res.mix.samples.size(); i++) {
+            float sum = 0;
+            for (const auto & s : res.stems) sum += s.samples[i];
+            err = std::max(err, std::fabs(sum - res.mix.samples[i]));
+            energy += res.mix.samples[i] * res.mix.samples[i];
+        }
+        const std::string what = std::to_string(c.rate) + " Hz x" + std::to_string(c.channels) + ", " + std::to_string(c.seconds) +
+                                 " s, " + std::to_string(c.passes) + " passes, " + std::to_string(res.chunks) + " chunks";
+        check(shaped && res.names.size() == res.stems.size(), "Explode stems are 44.1 kHz stereo, as long as the mix: " + what);
+        check(shaped && err < 1e-4f, "Explode stems sum to the mix: " + what + " (error " + std::to_string(err) + ")");
+        check(res.passes == c.passes && res.model == "placeholder" && energy > 0, "Explode result: " + what);
+    }
+    {   // A centred tone is mostly vocals; a low tone mostly bass.
+        backtrack::Audio a;
+        a.sample_rate = 44100;
+        a.channels = 2;
+        a.samples.resize(44100 * 2 * 2);
+        for (size_t i = 0; i < a.samples.size() / 2; i++) {
+            const double t = double(i) / 44100;
+            const float v = 0.2f * float(std::sin(2 * 3.14159265358979 * 440 * t)), b = 0.2f * float(std::sin(2 * 3.14159265358979 * 55 * t));
+            a.samples[2 * i] = v + b;
+            a.samples[2 * i + 1] = v + b;
+        }
+        explode::Result res = explode::separate(a, model, {});
+        auto energy = [&](const std::string & n) {
+            const auto & s = res.stems[size_t(std::find(res.names.begin(), res.names.end(), n) - res.names.begin())].samples;
+            double e = 0;
+            for (float v : s) e += double(v) * v;
+            return e;
+        };
+        const double total = energy("vocals") + energy("drums") + energy("bass") + energy("other");
+        check(energy("vocals") > 0.3 * total && energy("bass") > 0.3 * total && energy("drums") < 0.1 * total,
+              "Explode placeholder: a centred 440 Hz tone goes to vocals and 55 Hz to bass");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -373,6 +476,7 @@ int main() {
     test_context();
     test_placeholder_pipeline();
     test_drum_layouts();
+    test_stft_and_explode();
     std::printf("passed: %d, failed: %d\n", g_passed, g_failed);
     return g_failed ? 1 : 0;
 }

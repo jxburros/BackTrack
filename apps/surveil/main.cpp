@@ -1,6 +1,8 @@
 // backtrack-surveil: the BackTrack transcriber's command line and server.
 #include "surveil.h"
 
+#include "cli.h"
+
 #include "backtrack/base64.h"
 #include "backtrack/ggml_util.h"
 #include "backtrack/server.h"
@@ -21,18 +23,14 @@
 #include <sstream>
 #include <thread>
 
-#ifdef _WIN32
-#include <io.h>
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-#include <shellapi.h>
-#else
-#include <unistd.h>
-#endif
-
 namespace fs = std::filesystem;
 using backtrack::BadInput;
+using backtrack::cli::Args;
+using backtrack::cli::open_in_browser;
+using backtrack::cli::started_by_double_click;
+using backtrack::cli::stderr_is_terminal;
+using backtrack::cli::to_number;
+using backtrack::cli::write_file;
 using nlohmann::json;
 
 namespace {
@@ -89,33 +87,6 @@ make-placeholder:
                         T2 layout with temporal convs (--init random only)
 )";
 
-bool stderr_is_terminal() {
-#ifdef _WIN32
-    return _isatty(_fileno(stderr));
-#else
-    return isatty(fileno(stderr));
-#endif
-}
-
-// True when Windows made a console just for us, as it does when the .exe is double-clicked:
-// that window closes the moment we exit, so printing usage would only flash it.
-bool started_by_double_click() {
-#ifdef _WIN32
-    DWORD ids[2];
-    return GetConsoleProcessList(ids, 2) == 1;
-#else
-    return false;
-#endif
-}
-
-void open_in_browser(const std::string & url) {
-#ifdef _WIN32
-    ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-#else
-    (void)url;
-#endif
-}
-
 std::atomic<bool> g_interrupted{false};
 backtrack::http::BridgeServer * g_server = nullptr;
 
@@ -124,54 +95,8 @@ void on_signal(int) {
     if (g_server) g_server->stop();
 }
 
-struct Args {
-    std::vector<std::string> positional;
-    std::map<std::string, std::vector<std::string>> opts;
-    std::vector<std::string> flags;
-
-    bool flag(const std::string & f) const { return std::find(flags.begin(), flags.end(), f) != flags.end(); }
-    std::string get(const std::string & k, const std::string & fallback = "") const {
-        auto it = opts.find(k);
-        return it == opts.end() ? fallback : it->second.back();
-    }
-    std::vector<std::string> all(const std::string & k) const {
-        auto it = opts.find(k);
-        return it == opts.end() ? std::vector<std::string>{} : it->second;
-    }
-};
-
 Args parse_args(int argc, char ** argv, int first) {
-    static const std::vector<std::string> kFlags = {"--pitch-bends", "--quiet", "--help", "-h", "--version"};
-    static const std::map<std::string, std::string> kAlias = {{"-o", "--output"}};
-    Args a;
-    for (int i = first; i < argc; i++) {
-        std::string s = argv[i];
-        if (kAlias.count(s)) s = kAlias.at(s);
-        if (s.rfind("--", 0) == 0 && s.size() > 2) {
-            size_t eq = s.find('=');
-            if (eq != std::string::npos) {
-                a.opts[s.substr(0, eq)].push_back(s.substr(eq + 1));
-            } else if (std::find(kFlags.begin(), kFlags.end(), s) != kFlags.end()) {
-                a.flags.push_back(s);
-            } else if (i + 1 >= argc || std::string(argv[i + 1]).rfind("--", 0) == 0) {
-                a.flags.push_back(s);  // no value: a flag (`models --json`), or an error the command reports
-            } else {
-                a.opts[s].push_back(argv[++i]);
-            }
-        } else if (s == "-h") {
-            a.flags.push_back("--help");
-        } else {
-            a.positional.push_back(s);
-        }
-    }
-    return a;
-}
-
-double to_number(const std::string & s, const std::string & what) {
-    char * end = nullptr;
-    double v = std::strtod(s.c_str(), &end);
-    if (s.empty() || *end || !std::isfinite(v)) throw BadInput(what + " must be a number");
-    return v;
+    return backtrack::cli::parse_args(argc, argv, first, {"--pitch-bends", "--quiet", "--help", "-h", "--version"});
 }
 
 std::vector<std::string> model_dirs(const Args & a, const char * argv0) {
@@ -204,13 +129,6 @@ std::unique_ptr<surveil::Registry> make_registry(const Args & a, const char * ar
     }
     int threads = a.opts.count("--threads") ? int(to_number(a.get("--threads"), "--threads")) : 0;
     return std::make_unique<surveil::Registry>(a.get("--device"), threads, model_dirs(a, argv0), files);
-}
-
-void write_file(const std::string & path, const std::vector<uint8_t> & bytes) {
-    std::ofstream f(path, std::ios::binary);
-    if (!f) throw BadInput("cannot write " + path);
-    f.write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
-    if (!f) throw BadInput("cannot write " + path);
 }
 
 surveil::PickOptions pick_options_from_cli(const Args & a) {
