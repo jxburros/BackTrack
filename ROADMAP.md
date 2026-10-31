@@ -2,28 +2,28 @@
 
 What is done, what is in progress and what comes next, with every open issue placed on it. It
 sums up the [plans](docs/plans/overall.md), the [changelog](CHANGELOG.md) and the issues as of
-2026-10-24 (BackTrack 0.6.0). The plans keep the detail; update this page when a milestone moves
+2026-10-31 (BackTrack 0.7.0). The plans keep the detail; update this page when a milestone moves
 or an issue opens or closes.
 
 ## Where BackTrack stands
 
-- **Milestone M4** of the [overall plan](docs/plans/overall.md): Surveil runs inside Song Deck's
-  page (WebAssembly), and the bass and melody models are trained; releasing them is what is left.
+- **Milestones M4 done and M5 started** ([overall plan](docs/plans/overall.md)): Surveil runs
+  inside Song Deck's page (WebAssembly), and v0.6.1 released the bass, melody and drums 0.2.0
+  models. Explode S0 is built (0.7.0): the separator runs end to end with a placeholder model.
 - **Trained** ([weights/](weights/README.md)), against Song Deck's built-in transcription on 60
   unseen rendered songs per part: drums 0.2.0 F 0.848 against 0.527, bass 0.1.0 note F 0.472
   against 0.211, melody 0.1.0 0.917 against 0.757 on instrumental leads and 0.684 against 0.372
   on Song Deck's guide singer. Song Deck bundles all three as model plugins. None is scored on
   E-GMD or real recordings yet. Piano, guitar and the full mix use the placeholder model.
-- **Ships (latest release v0.4.0):** `backtrack-surveil` CPU builds for linux-x64, darwin-arm64,
-  darwin-x64 and win32-x64; the drum model; the WebAssembly build; desktop installers for
+- **Ships (latest release v0.6.1, 2026-10-24, the first through the unified release workflow):**
+  `backtrack-surveil` CPU builds for linux-x64, darwin-arm64, darwin-x64 and win32-x64; the drums
+  0.2.0, bass 0.1.0 and melody 0.1.0 models; the WebAssembly build; desktop installers for
   BackTrack Surveil and the BackTrack hub with its TRAIN tab (not code-signed or notarized).
-  Song Deck pins v0.4.0.
-- **Versioned, not released:** 0.5.0 (training libraries, the training queue, the training-data
-  research), 0.5.1 (degradation augmentation, #17) and 0.6.0 (the bass, melody and drums 0.2.0
-  models; ggml `f1aa6a3`, Onyx Engine's). The next release is the first through the
-  unified release workflow ([README](README.md#unified-release-procedure)), whose dry run and
-  publication are not verified yet.
-- **Not built:** Explode (only [its README](apps/explode/README.md)), the theory models, GPU builds.
+  Song Deck's one-click install pins v0.6.1 and its page runs v0.6.1's WebAssembly build.
+  The v0.5.1 draft on GitHub is empty, left by the failed run that 0.6.1 fixed.
+- **Versioned, not released:** 0.7.0, Explode S0 ([apps/explode/](apps/explode/README.md)). The
+  release workflow does not package Explode yet; that is S3, with the first trained model.
+- **Not built:** Explode's trained models, the theory models, GPU builds.
 
 ## Milestones
 
@@ -37,8 +37,8 @@ Status is **done**, **in progress**, **next** (start soon) or **later**.
 | M1 | Song Deck uses JX Runtime for LLMs                                     | done                         | none       | None                                                   |
 | M2 | Repository, shared core, server, page; Surveil on a placeholder model  | done (0.0.1)                 | none       | T0                                                     |
 | M3 | Training pipeline, drum model, Surveil 0.1 binaries, Song Deck preset  | done (v0.1.0)                | M2         | T1–T3; left open: T2's real-recording scores, GPU builds |
-| M4 | Surveil in WebAssembly inside Song Deck; bass and melody models        | done but the release         | M3         | T4 done; T5's models trained (0.6.0, not released)     |
-| M5 | Explode 0.1: first model, binaries, Song Deck preset                   | next (S0)                    | M2         | S0–S3                                                  |
+| M4 | Surveil in WebAssembly inside Song Deck; bass and melody models        | done (v0.6.1)                | M3         | T4 done; T5's models released (v0.6.1)                 |
+| M5 | Explode 0.1: first model, binaries, Song Deck preset                   | in progress: S0 done (0.7.0) | M2         | S0–S3                                                  |
 | M6 | JX Runtime runs the audio apps; Song Deck runs JX Runtime managed      | later                        | M1, M3     | Pinned releases and GGUF metadata, which exist; the work is in JX Runtime and Song Deck |
 | M7 | Theory models: chords and key in Surveil, a harmony app, an npm package | C0 done; C1 next          | M3 (M4 for WebAssembly) | C0–C3, H0–H1                                |
 
@@ -59,7 +59,7 @@ Status is **done**, **in progress**, **next** (start soon) or **later**.
 
 | #  | What                                                                      | Status | Issues | Depends on                                             |
 | -- | ------------------------------------------------------------------------- | ------ | ------ | ------------------------------------------------------ |
-| S0 | App on the shared core: chunking, STFT, server, CLI, page, placeholder    | next   |        | M2 (done)                                              |
+| S0 | App on the shared core: chunking, STFT, server, CLI, page, placeholder    | done (0.7.0) |  | M2 (done)                                              |
 | S1 | Data pipeline: renders, Slakh, remixing, augmentation; first vocal data   | next: start sourcing vocals early | #17 follow-up | Song Deck's renders; the vocal-data decision |
 | S2 | Vocal/instrumental model, competitive with Demucs two-stem                 | later  | #3     | S0, S1                                                 |
 | S3 | Release 0.1: binaries, model download, Song Deck preset                    | later  |        | S2; Song Deck's separator preset (waits for M5)        |
@@ -81,18 +81,23 @@ Status is **done**, **in progress**, **next** (start soon) or **later**.
 
 ## Now, next, later
 
+**Done since the last update**
+
+- v0.6.1 released the bass, melody and drums 0.2.0 models through the unified release workflow;
+  Song Deck pins it for its one-click install (all three models) and vendors its WebAssembly
+  build (Song Deck roadmap SD-11).
+- Explode S0 (0.7.0): `backtrack-explode` (CLI, server on 8827, page), chunked STFT processing,
+  averaging passes, the residual share-out and a placeholder mask model. Song Deck's separation
+  adapter works with it unchanged and gets stems that sum to the mix.
+
 **Now**
 
-- Release 0.6.0 (with 0.5.0 and 0.5.1): the first run of the unified release workflow (dry run
-  first). It carries the bass, melody and drums 0.2.0 models; Song Deck then moves its pin from
-  v0.4.0 and vendors the release's WebAssembly build.
 - The next training round: bass is the weakest (note F 0.47); ACE-Step takes and degradation
   augmentation for bass and melody, which their first models trained without.
 - Finish T2: score the drum model on E-GMD and on a real drum test set.
 
 **Next**
 
-- Explode S0, which starts M5 ([what is left to write](apps/explode/README.md)).
 - Vocal training data for S1: decide the route and start sourcing; it has the longest lead time.
 - C1: model A (chords and key) on renders, against C0's baseline (root 0.59, sevenths 0.44, key
   0.79); `training/chords.py` has the labels and scores.
@@ -131,12 +136,13 @@ of them now built:
 ## Cross-repository dependencies
 
 - **Song Deck** owns the bridge contracts (transcription, separation, the planned harmony one);
-  BackTrack implements them. It pins BackTrack Surveil v0.4.0 for its one-click install and runs
-  Surveil's WebAssembly build with the drums, bass and melody model plugins, so a new release reaches its users
-  when Song Deck moves the pin. It renders the training data (`dataset:render`, 0.19.0 or later
+  BackTrack implements them. It pins BackTrack Surveil v0.6.1 (all three models) for its one-click
+  install and runs v0.6.1's WebAssembly build with the drums, bass and melody model plugins, so a
+  new release reaches its users when Song Deck moves the pin (`npm run backtrack:pin`). It renders the training data (`dataset:render`, 0.19.0 or later
   for `--separate-stems`; `dataset:perform` for ACE-Step takes); model plugins need 0.18.0 or
   later. Its round-trip lab now assigns tracks to finer stems (Song Deck #176, closed); its
-  rare-instrument stems wait on #2. Explode's preset waits for M5, and M7 needs Song Deck changes
+  rare-instrument stems wait on #2. Its separation adapter already works with Explode on port 8827;
+  the one-click preset waits for S3, and M7 needs Song Deck changes
   first ([Song Deck's side](https://github.com/jxburros/Song-Deck/blob/main/docs/plans/theory-models.md)).
 - **Onyx Engine:** the ggml pin (`packaging/vendor/ggml.conf`) is kept equal to the revision
   Onyx Engine's llama.cpp pin last synced; Onyx Engine's `scripts/check-ggml-pin.sh` gives the
@@ -170,9 +176,8 @@ of them now built:
 | -------- | -------------- | ----- |
 | [docs/plans/overall.md](docs/plans/overall.md) | The goal, decisions, milestones M0–M7, contracts and open decisions across the projects | Current |
 | [docs/plans/surveil.md](docs/plans/surveil.md) | Surveil: interfaces, how it works, models in order, training data, T0–T7 | Current |
-| [docs/plans/explode.md](docs/plans/explode.md) | Explode: interfaces, design, stems in order, training data, S0–S5 | Current; nothing built |
+| [docs/plans/explode.md](docs/plans/explode.md) | Explode: interfaces, design, stems in order, training data, S0–S5 | Current; S0 built |
 | [docs/plans/theory.md](docs/plans/theory.md) | M7: the chords and key model, the harmony model and app, C0–C3 and H0–H2 | Current; C0 done |
-| [apps/explode/README.md](apps/explode/README.md) | What S0 reuses from the core and what is left to write | Current |
 | [docs/training-data.md](docs/training-data.md) | Every dataset, instrument library and paid source checked, with licences (2026-10-20); degradation; faster renders | Current research |
 | [docs/training-at-home.md](docs/training-at-home.md) | Training at home step by step, the TRAIN tab, nightly runs | Current guide |
 | [training/README.md](training/README.md) | Every training script and pipeline option | Current reference |
@@ -181,6 +186,7 @@ of them now built:
 | [wasm/README.md](wasm/README.md) | The WebAssembly build | Done (T4) |
 | Song Deck [`docs/plans/README.md`](https://github.com/jxburros/Song-Deck/blob/main/docs/plans/README.md) | Song Deck's copy of the cross-project plan, M0–M6 | Kept in Song Deck; this repository's overall plan adds M7 |
 | Song Deck [`separator-app.md`](https://github.com/jxburros/Song-Deck/blob/main/docs/plans/separator-app.md), [`transcriber-app.md`](https://github.com/jxburros/Song-Deck/blob/main/docs/plans/transcriber-app.md) | The first versions of the Explode and Surveil plans | Superseded by explode.md and surveil.md, which moved here in 0.0.1 |
+| [apps/explode/README.md](apps/explode/README.md) | How Explode separates (S0), the placeholder model, where a trained model plugs in | Current |
 | Song Deck [`theory-models.md`](https://github.com/jxburros/Song-Deck/blob/main/docs/plans/theory-models.md) | Song Deck's changes for M7, by milestone | Current |
 | Song Deck [`training-data-research.md`](https://github.com/jxburros/Song-Deck/blob/main/docs/plans/training-data-research.md) | Generation services, datasets and libraries (2026-10-19) | Current for generation; for datasets, training-data.md is newer |
 

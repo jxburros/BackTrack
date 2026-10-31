@@ -104,7 +104,7 @@
   }
 
   // ---- views ----
-  const views = { surveil: { mount: mountSurveil } };
+  const views = { surveil: { mount: mountSurveil }, explode: { mount: mountExplode } };
 
   function mount() {
     const view = views[app];
@@ -525,6 +525,359 @@
       window.addEventListener('message', (e) => {
         if (e.source !== window.parent || !HUB_ORIGINS.includes(e.origin) || !e.data) return;
         if (e.data.type === 'backtrack-hub') hub = { source: e.source, origin: e.origin };  // downloads go through the hub
+        if (e.data.type === 'backtrack-file') pickFile(e.data.file);
+      });
+      window.parent.postMessage({ type: 'backtrack-ready', app }, '*');
+    }
+  }
+
+  // ---------------------------------------------------------------- Explode
+  function mountExplode(view) {
+    // Stems in the design's order (AGENT-SPEC 5.5); anything else after them.
+    const ORDER = ['vocals', 'drums', 'bass', 'guitar', 'piano', 'other', 'instrumental'];
+    let file = null, busy = null, result = null, hub = null, poll = 0, startedAt = 0;
+    let ctx = null, buffers = {}, gains = {}, sources = [], playing = false, playFrom = 0, playStart = 0, raf = 0;
+    const muted = new Set(), soloed = new Set();
+    let baseName = 'song';
+
+    view.info = (i) => {
+      const models = $('model');
+      const keep = models.value;
+      models.replaceChildren(...(i.models || []).map((m) => new Option(m.name + (m.placeholder ? ' (placeholder)' : ''), m.id)));
+      if ([...models.options].some((o) => o.value === keep)) models.value = keep;
+      else if (i.model) models.value = i.model;
+      syncModel();
+    };
+
+    function modelInfo() {
+      return ((info && info.models) || []).find((m) => m.id === $('model').value) || null;
+    }
+
+    function syncModel() {
+      const m = modelInfo();
+      $('placeholder-note').hidden = !(m && m.placeholder);
+      const picks = $('stem-picks');
+      const was = new Set([...picks.querySelectorAll('input:checked')].map((c) => c.value));
+      const defaults = (m && m.stems) || [];
+      const all = defaults.concat((m && m.on_request_stems) || []);
+      picks.replaceChildren(...all.map((s) => {
+        const label = document.createElement('label');
+        label.className = 'bt-check';
+        const c = document.createElement('input');
+        c.type = 'checkbox';
+        c.value = s;
+        c.checked = was.size ? was.has(s) : defaults.includes(s);
+        const t = document.createElement('span');
+        t.className = 'bt-label';
+        t.textContent = s;
+        label.append(c, t);
+        return label;
+      }));
+    }
+
+    function setProgress(fraction, meta) {
+      const pct = Math.round(Math.max(0, Math.min(1, fraction)) * 100);
+      $('progress').setAttribute('aria-valuenow', String(pct));
+      $('progress-bar').style.width = pct + '%';
+      $('progress-meta').textContent = meta;
+    }
+
+    onHealth = (h) => {
+      if (!busy) return;
+      const job = (h.active_jobs || []).find((j) => j.id === busy);
+      if (!job) return;
+      if (job.state === 'queued') return setProgress(0, 'QUEUED • waiting for the job ahead');
+      const p = job.progress || 0;
+      // "chunk 3/12, pass 1/2" from the server becomes CHUNK 3/12 • PASS 1/2.
+      const stage = String(job.stage || 'working').toUpperCase().replace(', ', ' • ');
+      const passes = $('augment').checked ? ' (flip + swap)' : '';
+      setProgress(p, stage + (/PASS 2\//.test(stage) ? passes : '') + ' • ' + Math.round(p * 100) + '% • ' + (job.seconds || 0).toFixed(1) + ' S');
+    };
+
+    function stamp(word, kind) {
+      const s = document.createElement('span');
+      s.className = 'bt-stamp bt-stamp--' + kind;
+      s.setAttribute('aria-hidden', 'true');
+      s.textContent = word;
+      return s;
+    }
+    function showDone(text) {
+      const p = document.createElement('p');
+      p.textContent = text;
+      $('status').replaceChildren(stamp('Done', 'ok'), p);
+    }
+    function showError(text) {
+      const p = document.createElement('p');
+      p.className = 'bt-error';
+      p.textContent = text;
+      $('status').replaceChildren(stamp('Failed', 'fail'), p);
+    }
+    function explain(e, name) {
+      const msg = (e.message || '').replace(/\.$/, '');
+      const cap = msg ? msg[0].toUpperCase() + msg.slice(1) : '';
+      if (e.status === 0) return "COULDN'T REACH THE SERVER. Check that backtrack-explode serve is still running, then try again.";
+      if (e.status === 401) { $('auth').hidden = false; return 'KEY REJECTED. Enter the key the server was started with.'; }
+      if (/unreadable|unrecognised audio|empty|no samples|sample rate|channel count/i.test(msg)) return "COULDN'T READ " + name + '. Use WAV, FLAC or MP3.';
+      if (/longer than/i.test(msg)) return "COULDN'T READ " + name + '. ' + cap + '; trim it and try again.';
+      if (e.status === 409 && /busy/i.test(msg)) return 'SERVER BUSY. ' + msg + '. Try again when the current job ends.';
+      if (e.status === 413) return name + ' IS TOO BIG for this server. Start it with a larger --max-body-mb.';
+      if (e.status === 503) return 'NOT READY. ' + cap + '; try again in a few seconds.';
+      return "COULDN'T SEPARATE " + name + '. ' + cap + '.';
+    }
+
+    const clock = (t) => pad(t / 60) + ':' + pad(t % 60) + '.' + Math.floor((t * 10) % 10);
+
+    function pickFile(f) {
+      if (!f) return;
+      if (!/\.(wav|flac|mp3)$/i.test(f.name)) return showError("COULDN'T READ " + f.name + '. Use WAV, FLAC or MP3.');
+      file = f;
+      baseName = f.name.replace(/\.[^.]+$/, '') || 'song';
+      $('drop-text').textContent = f.name + ' / ' + (f.size / 1048576).toFixed(1) + ' MB — click to pick another';
+      $('ex-file-line').textContent = f.name;
+      $('ex-file-sub').textContent = 'stems sum back to the mix.';
+      $('status').replaceChildren();
+      $('go').disabled = !!busy;
+    }
+
+    function readBase64(f) {
+      return new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result).replace(/^data:[^,]*,/, ''));
+        r.onerror = () => reject(Object.assign(new Error('the browser could not read the file'), { status: -1 }));
+        r.readAsDataURL(f);
+      });
+    }
+
+    async function detonate() {
+      if (!file || busy) return;
+      const f = file;
+      const stems = [...$('stem-picks').querySelectorAll('input:checked')].map((c) => c.value);
+      if (stems.includes('other') && stems.includes('instrumental'))
+        return showError("PICK ONE OF OTHER AND INSTRUMENTAL. Either one holds everything the other stems don't.");
+      const body = { stems, augment: $('augment').checked };
+      if ($('model').value) body.model = $('model').value;
+      stop();
+      busy = Math.random().toString(36).slice(2, 12);
+      startedAt = performance.now();
+      $('go').disabled = true;
+      $('cancel').hidden = false;
+      $('progress-row').hidden = false;
+      $('status').replaceChildren();
+      setProgress(0, 'READING ' + f.name);
+      poll = setInterval(refreshHealth, 400);
+      try {
+        body.audio_base64 = await readBase64(f);
+        setProgress(0, 'UPLOADING ' + (f.size / 1048576).toFixed(1) + ' MB');
+        const r = await api('/separate', { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json', 'X-Job-Id': busy } });
+        setProgress(1, 'DECODING STEMS');
+        await showStems(r);
+        const names = Object.keys(r.stems || {});
+        const len = r.seconds || 0;
+        $('ex-file-line').textContent = f.name + ' / ' + Math.floor(len / 60) + ':' + pad(len % 60) + ' / 44.1k stereo';
+        $('ex-file-sub').textContent = names.length + ' stems. sums back to the mix.';
+        showDone(names.length + ' stems from ' + f.name + ' in ' + ((performance.now() - startedAt) / 1000).toFixed(1) + ' s' +
+                 (r.passes > 1 ? ', ' + r.passes + ' passes averaged' : '') + '. Play them, mute or solo, and save.');
+      } catch (e) {
+        if (/cancelled/i.test(e.message)) toast('Cancelled. Nothing was written.');
+        else showError(explain(e, f.name));
+      } finally {
+        clearInterval(poll);
+        busy = null;
+        $('go').disabled = !file;
+        $('cancel').hidden = true;
+        $('progress-row').hidden = true;
+      }
+    }
+
+    function bytesOf(b64) {
+      const bin = atob(b64), out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+
+    async function showStems(r) {
+      result = { names: Object.keys(r.stems || {}).sort((a, b) => (ORDER.indexOf(a) + 1 || 99) - (ORDER.indexOf(b) + 1 || 99)), wav: {} };
+      for (const n of result.names) result.wav[n] = bytesOf(r.stems[n]);
+      muted.clear(); soloed.clear();
+      buffers = {};
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (Ctx) {
+        ctx = ctx || new Ctx();
+        for (const n of result.names) {
+          try { buffers[n] = await ctx.decodeAudioData(result.wav[n].slice().buffer); } catch { /* shown without a waveform */ }
+        }
+      }
+      const rows = result.names.map((n) => {
+        const row = document.createElement('div');
+        row.className = 'bt-stem ex-stem';
+        row.dataset.stem = n;
+        const name = document.createElement('span');
+        name.className = 'bt-stem__name';
+        name.textContent = n;
+        const wave = document.createElement('canvas');
+        wave.className = 'bt-stem__wave';
+        wave.title = 'Click to jump';
+        wave.addEventListener('click', (e) => {
+          const rect = wave.getBoundingClientRect();
+          seek(Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * duration());
+        });
+        const actions = document.createElement('div');
+        actions.className = 'ex-stem-actions';
+        const ms = document.createElement('div');
+        ms.className = 'bt-ms';
+        const mk = (label, set, aria) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.textContent = label;
+          b.setAttribute('aria-pressed', 'false');
+          b.setAttribute('aria-label', aria + ' ' + n);
+          b.addEventListener('click', () => {
+            if (set.has(n)) set.delete(n); else set.add(n);
+            b.setAttribute('aria-pressed', String(set.has(n)));
+            applyGains();
+          });
+          return b;
+        };
+        ms.append(mk('M', muted, 'Mute'), mk('S', soloed, 'Solo'));
+        const save = document.createElement('button');
+        save.type = 'button';
+        save.className = 'bt-btn bt-btn--ghost bt-btn--small';
+        save.textContent = '[ Save ]';
+        save.setAttribute('aria-label', 'Save ' + n);
+        save.addEventListener('click', () => saveStem(n));
+        actions.append(ms, save);
+        row.append(name, wave, actions);
+        return row;
+      });
+      $('stems').replaceChildren(...rows);
+      $('stems').hidden = false;
+      $('transport').hidden = !Object.keys(buffers).length;
+      playFrom = 0;
+      drawWaves();
+      updateClock();
+    }
+
+    function peaksOf(buf) {
+      const n = 600, len = buf.length, out = new Float32Array(n);
+      for (let c = 0; c < buf.numberOfChannels; c++) {
+        const d = buf.getChannelData(c);
+        for (let i = 0; i < n; i++) {
+          let m = out[i];
+          for (let j = Math.floor(len * i / n), e = Math.floor(len * (i + 1) / n); j < e; j++) { const v = Math.abs(d[j]); if (v > m) m = v; }
+          out[i] = m;
+        }
+      }
+      return out;
+    }
+
+    function drawWaves() {
+      if (!result) return;
+      // One scale for every stem, so a quiet stem looks quiet.
+      const all = {};
+      let top = 1e-6;
+      for (const n of result.names) if (buffers[n]) { all[n] = peaksOf(buffers[n]); top = Math.max(top, ...all[n]); }
+      for (const row of $('stems').children) {
+        const p = all[row.dataset.stem];
+        const c = row.querySelector('canvas');
+        if (p) drawBars(c, Array.from(p, (v) => v / top));
+        row.dataset.muted = String(!audible(row.dataset.stem));
+      }
+    }
+
+    const audible = (n) => !muted.has(n) && (!soloed.size || soloed.has(n));
+    function applyGains() {
+      for (const n of Object.keys(gains)) gains[n].gain.value = audible(n) ? 1 : 0;
+      for (const row of $('stems').children) row.dataset.muted = String(!audible(row.dataset.stem));
+    }
+
+    const duration = () => Math.max(0, ...Object.values(buffers).map((b) => b.duration));
+    const position = () => (playing ? Math.min(duration(), playFrom + ctx.currentTime - playStart) : playFrom);
+
+    function play() {
+      if (!ctx || playing || !Object.keys(buffers).length) return;
+      ctx.resume && ctx.resume();
+      if (playFrom >= duration()) playFrom = 0;
+      const at = ctx.currentTime + 0.05;
+      gains = {};
+      sources = Object.entries(buffers).map(([n, b]) => {
+        const src = ctx.createBufferSource();
+        src.buffer = b;
+        const g = ctx.createGain();
+        g.gain.value = audible(n) ? 1 : 0;
+        src.connect(g).connect(ctx.destination);
+        gains[n] = g;
+        src.start(at, playFrom);
+        return src;
+      });
+      sources[0].onended = () => { if (playing && position() >= duration() - 0.05) { stop(); playFrom = 0; updateClock(); } };
+      playStart = at;
+      playing = true;
+      $('play').textContent = '[ Pause ]';
+      const tick = () => { updateClock(); raf = playing ? requestAnimationFrame(tick) : 0; };
+      raf = requestAnimationFrame(tick);
+    }
+    function stop() {
+      if (!playing) return;
+      playFrom = position();
+      for (const s of sources) { try { s.onended = null; s.stop(); } catch {} }
+      sources = [];
+      playing = false;
+      $('play').textContent = '[ Play ]';
+    }
+    function seek(t) {
+      const was = playing;
+      stop();
+      playFrom = t;
+      updateClock();
+      if (was) play();
+    }
+    function updateClock() {
+      $('clock').textContent = clock(position()) + ' / ' + clock(duration());
+    }
+
+    // ---- saving ----
+    function download(name, bytes, type) {
+      if (hub) { hub.source.postMessage({ type: 'backtrack-download', name, mime: type, bytes }, hub.origin); return; }
+      const url = URL.createObjectURL(new Blob([bytes], { type }));
+      const a = document.createElement('a');
+      a.href = url; a.download = name;
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+    function saveStem(n) {
+      if (!result || !result.wav[n]) return;
+      const name = baseName + '.' + n + '.wav';
+      download(name, result.wav[n], 'audio/wav');
+      toast('Saved ' + name + '.');
+    }
+
+    // ---- wiring ----
+    const drop = $('drop');
+    $('file').addEventListener('change', () => pickFile($('file').files[0]));
+    drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.dataset.over = 'true'; });
+    drop.addEventListener('dragleave', () => { delete drop.dataset.over; });
+    drop.addEventListener('drop', (e) => { e.preventDefault(); delete drop.dataset.over; pickFile(e.dataTransfer.files[0]); });
+    $('model').addEventListener('change', syncModel);
+    $('go').addEventListener('click', detonate);
+    $('cancel').addEventListener('click', () => {
+      if (busy) api('/cancel', { method: 'POST', body: JSON.stringify({ job_id: busy }), headers: { 'Content-Type': 'application/json' } }).catch(() => {});
+    });
+    $('play').addEventListener('click', () => (playing ? stop() : play()));
+    $('save-all').addEventListener('click', () => {
+      if (!result) return;
+      result.names.forEach((n, i) => setTimeout(() => download(baseName + '.' + n + '.wav', result.wav[n], 'audio/wav'), i * 300));
+      toast('Saved ' + result.names.length + ' stems.');
+    });
+    let resizeTimer = 0;
+    const redraw = () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(drawWaves, 60); };
+    window.addEventListener('resize', redraw);
+    window.addEventListener('bt-theme', redraw);
+
+    if (window.parent !== window) {
+      const HUB_ORIGINS = ['tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost'];
+      window.addEventListener('message', (e) => {
+        if (e.source !== window.parent || !HUB_ORIGINS.includes(e.origin) || !e.data) return;
+        if (e.data.type === 'backtrack-hub') hub = { source: e.source, origin: e.origin };
         if (e.data.type === 'backtrack-file') pickFile(e.data.file);
       });
       window.parent.postMessage({ type: 'backtrack-ready', app }, '*');

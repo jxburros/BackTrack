@@ -77,8 +77,38 @@ p { margin: 0; }
 .sv-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--bt-s4); }
 .sv-foot__actions { display: flex; flex-wrap: wrap; gap: var(--bt-s3); margin-left: auto; }
 
+/* ---------------------------------------------------------------- Explode */
+.ex-body { padding: var(--bt-s5); }
+.ex-body > * + * { margin-top: var(--bt-s5); }
+.ex-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: var(--bt-s3) var(--bt-s5); }
+.ex-file { text-align: right; overflow-wrap: anywhere; }
+.ex-drop { min-height: 130px; }
+.ex-drop span { overflow-wrap: anywhere; }
+.ex-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--bt-s4); align-items: end; }
+.ex-stems-pick { border: 0; margin: 0; padding: 0; min-width: 0; }
+.ex-stems-pick legend { padding: 0; margin-bottom: var(--bt-s2); }
+.ex-checks { display: flex; flex-wrap: wrap; gap: var(--bt-s2) var(--bt-s4); }
+.ex-warn { color: var(--bt-ink-muted); }
+.ex-stem-actions { display: flex; align-items: center; gap: var(--bt-s3); }
+.ex-stem .bt-stem__wave { cursor: pointer; }
+.ex-transport { display: flex; flex-wrap: wrap; align-items: center; gap: var(--bt-s3); }
+.ex-save-all { margin-left: auto; }
+.ex-run { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--bt-s4); }
+.ex-progress { flex: 1 1 320px; }
+.ex-run__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--bt-s3); margin-left: auto; }
+.ex-run__actions .bt-scrawl { transform: rotate(-4deg); font-size: 30px; }
+.ex-status:empty { display: none; }
+.ex-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--bt-s3) var(--bt-s5); }
+.ex-status .bt-stamp { font-size: 36px; }
+
 @media (max-width: 720px) {
   .page { padding-top: var(--bt-s3); }
+  .ex-body { padding: var(--bt-s3); }
+  .ex-file { text-align: left; }
+  .ex-run__actions, .ex-save-all { margin-left: 0; }
+  /* Stem rows stack under 720 px (AGENT-SPEC 5.5). */
+  .ex-stem { grid-template-columns: 1fr; padding: var(--bt-s3); gap: var(--bt-s2); }
+  .ex-stem .bt-stem__name { font-size: 34px; }
   .sv { padding: var(--bt-s3); }
   .sv > * + * { margin-top: var(--bt-s4); }
   .sv-cam { align-items: flex-start; }

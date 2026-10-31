@@ -103,6 +103,7 @@ add_library(backtrack-core STATIC
     core/src/hcqt.cpp
     core/src/midi.cpp
     core/src/music.cpp
+    core/src/stft.cpp
 )
 target_include_directories(backtrack-core PUBLIC core/include PRIVATE third_party/dr_libs)
 target_compile_definitions(backtrack-core PUBLIC BACKTRACK_VERSION="${APP_RELEASE_VERSION}")
@@ -165,15 +166,27 @@ add_executable(backtrack-surveil
     apps/surveil/notes.cpp
     apps/surveil/surveil.cpp
 )
+target_include_directories(backtrack-surveil PRIVATE apps/common)
 target_link_libraries(backtrack-surveil PRIVATE backtrack-core backtrack-server backtrack-ui backtrack-json)
 if (WIN32)
     target_link_libraries(backtrack-surveil PRIVATE shell32)  # ShellExecuteA: open the page on double-click
 endif()
 
+add_executable(backtrack-explode
+    apps/explode/main.cpp
+    apps/explode/explode.cpp
+)
+target_include_directories(backtrack-explode PRIVATE apps/common)
+target_link_libraries(backtrack-explode PRIVATE backtrack-core backtrack-server backtrack-ui backtrack-json)
+if (WIN32)
+    target_link_libraries(backtrack-explode PRIVATE shell32)
+endif()
+
 if (BACKTRACK_BUILD_TESTS)
     enable_testing()
-    add_executable(backtrack-tests tests/core_tests.cpp apps/surveil/model.cpp apps/surveil/notes.cpp apps/surveil/surveil.cpp)
-    target_include_directories(backtrack-tests PRIVATE apps/surveil)
+    add_executable(backtrack-tests tests/core_tests.cpp apps/surveil/model.cpp apps/surveil/notes.cpp apps/surveil/surveil.cpp
+                                   apps/explode/explode.cpp)
+    target_include_directories(backtrack-tests PRIVATE apps/surveil apps/explode)
     target_link_libraries(backtrack-tests PRIVATE backtrack-core backtrack-json)
     add_test(NAME backtrack-tests COMMAND backtrack-tests)
     # ui/ carries copies of the design kit (design/AGENT-SPEC.md, section 9); keep them identical.

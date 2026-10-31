@@ -6,6 +6,7 @@ Each binary serves a page. Start the server, open the address, drop a track:
 
 ```bash
 backtrack-surveil serve          # then open http://127.0.0.1:8826
+backtrack-explode serve          # then open http://127.0.0.1:8827
 ```
 
 It runs on your machine. Nothing leaves it: the fonts, styles and scripts are built into the
@@ -38,6 +39,20 @@ binary, and the page talks only to the server that served it.
 
 If the model is a placeholder (hand-set weights, no training), the case file says so. Expect
 rough notes until the trained models land.
+
+## Explode, step by step
+
+1. Drop a WAV, FLAC or MP3 on the torn drop zone, or click it to pick one.
+2. Tick the stems you want. **Instrumental** (on request) and **Other** each hold whatever the
+   other ticked stems don't, so tick one of them, not both. **Two passes** averages a second,
+   polarity-flipped and channel-swapped pass: slower, a little steadier.
+3. **DETONATE.** The bar moves per chunk and pass (`CHUNK 3/12 • PASS 1/2`); **Cancel** stops it.
+4. Each stem gets a row: its name, its waveform (all on one scale, so a quiet stem looks quiet),
+   **M**ute, **S**olo and **Save**. **Play** plays the stems together, with mute and solo
+   applied as you change them; click a waveform to jump. **Save all stems** saves each as
+   `song.<stem>.wav`.
+
+With the placeholder model the page says so: its stems are rough, for trying the app.
 
 ## When it goes wrong
 

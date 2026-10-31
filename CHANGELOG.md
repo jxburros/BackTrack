@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **BackTrack Explode** (0.7.0, milestone S0), the stem separator, on the shared core:
+  `backtrack-explode song.wav` writes vocals, drums, bass and other (or vocals and instrumental,
+  `--stems vocals,instrumental`) as 44.1 kHz stereo WAV files that sum back to the song, and
+  `backtrack-explode serve` answers Song Deck's `POST /separate` on port 8827, with `stems` and
+  `on_request_stems` in `GET /info`, and serves its page in the blast-zone theme: drop a song,
+  DETONATE, then play the stems together with mute and solo and save them. It works in 20 s
+  chunks with crossfades, so long songs use little memory and report `chunk 3/12, pass 1/2`
+  progress, and `--augment` averages a polarity-flipped, channel-swapped second pass. The model is
+  a placeholder (soft masks from harmonic/percussive filtering, the low band and the stereo
+  centre): rough stems, for trying the app and its wiring until S2's trained model. Not in
+  releases yet (S3).
+- `core/`: a short-time Fourier transform with an exact inverse (`backtrack::Stft`), both stereo
+  channels in one complex FFT per frame.
+
+### Changed
+
+- Surveil's command-line helpers moved to `apps/common/cli.h`, shared with Explode. No change in
+  behaviour.
+
 ### Fixed
 
 - **Release publishing** (0.6.1): the release workflow and validation pinned release-infrastructure

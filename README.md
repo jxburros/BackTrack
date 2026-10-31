@@ -4,8 +4,8 @@
 
 A stem separator and a MIDI transcriber, built from one repository on a shared core:
 
-- **BackTrack Explode** splits a song into stems (`backtrack-explode`, port 8827). *Coming in
-  milestone S0.*
+- **BackTrack Explode** splits a song into stems (`backtrack-explode`, port 8827). *Milestone S0:
+  the app works end to end with a placeholder model; the first trained model is S2.*
 - **BackTrack Surveil** turns audio into MIDI (`backtrack-surveil`, port 8826).
 
 Each works on its own (command line, or the page the binary serves) and as a provider inside
@@ -13,7 +13,8 @@ Each works on its own (command line, or the page the binary serves) and as a pro
 transcription bridge contracts. Everything runs locally on [ggml](https://github.com/ggml-org/ggml),
 with weights in GGUF; no Python at run time.
 
-> **Status: milestone M4.** Surveil has trained models for **drums**, **bass** and **melody**
+> **Status: M4 released (v0.6.1); M5 started.** Explode runs on the shared core with a
+> placeholder model (masks, no training): rough stems that always sum back to the mix. Surveil has trained models for **drums**, **bass** and **melody**
 > (lead lines and vocals), each well ahead of Song Deck's built-in transcription on unseen rendered
 > songs ([weights/](weights/README.md): drums F 0.85 against 0.53, bass 0.47 against 0.21, sung
 > leads 0.68 against 0.37), and runs in WebAssembly inside Song Deck ([wasm/](wasm/README.md)).
@@ -42,6 +43,8 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
 
 ./build/backtrack-surveil song.wav --stem bass -o bass.mid
 ./build/backtrack-surveil serve               # then open http://127.0.0.1:8826
+./build/backtrack-explode song.wav            # stems into song-stems/
+./build/backtrack-explode serve               # then open http://127.0.0.1:8827
 ```
 
 ## What it looks like
@@ -82,6 +85,24 @@ It implements Song Deck's `POST /transcribe` contract plus an optional `context`
 Song Deck can also run Surveil inside its page with nothing to install: the WebAssembly build
 ([wasm/](wasm/README.md)) with a model installed as a Song Deck model plugin.
 
+## Explode on the command line
+
+```bash
+backtrack-explode INPUT [--stems vocals,drums,bass,other | --stems vocals,instrumental]
+                        [--augment | --passes 1-4] [--format pcm16|pcm24|float32]
+                        [-o DIR] [--json out.json|-] [--chunk SECONDS] [--model ID]
+backtrack-explode serve [--host 127.0.0.1] [--port 8827] [--api-key KEY] [--allow-origin URL]
+backtrack-explode models
+```
+
+Stems are 44.1 kHz stereo WAV files, one per stem, and they sum back to the input. `other` (or
+`instrumental`, on request) holds whatever the other stems don't. `--augment` averages a second,
+polarity-flipped and channel-swapped pass. In Song Deck, add a separation provider at
+`http://127.0.0.1:8827`: it implements `POST /separate` with `GET /info`'s `stems` and
+`on_request_stems` ([docs/http-api.md](docs/http-api.md#backtrack-explode)). The placeholder is
+for wiring and checking the pipeline, not for real use: for good stems today use Demucs or a
+RoFormer model in Song Deck.
+
 ## How it works
 
 ![How it fits: your audio and the model weights go through core/ into Surveil (and Explode, coming in S0), which you reach from the CLI, the page or Song Deck](docs/images/architecture.jpg)
@@ -92,6 +113,12 @@ frame, the likelihood of a note starting, sounding and ending at each of 88 pitc
 pitch curve for bends (or hits per class, for drums). Note picking turns likelihoods into
 notes in code, so behaviour changes without retraining. Models are GGUF files that carry their
 own front-end settings and licence record ([docs/gguf-metadata.md](docs/gguf-metadata.md)).
+
+Explode resamples to 44.1 kHz stereo and works in 20-second chunks that overlap by a second and
+crossfade. Per chunk, a short-time Fourier transform goes to the model, which estimates each
+stem's spectrogram; what the estimates miss is shared out by each stem's power in that bin, so
+the stems sum to the mix, and the inverse transform gives the audio back
+([apps/explode/README.md](apps/explode/README.md)).
 
 ## Documentation
 

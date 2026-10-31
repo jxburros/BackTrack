@@ -95,12 +95,22 @@ separate`, `audio.stems`, `audio.sample_rate`, chunk and overlap settings, `gene
 
 | #   | What                                                                                        | Done when                                                              | Size                       |
 | --- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------- |
-| S0  | App on the shared core: chunked processing, server, CLI, page, with a placeholder model     | Song Deck can use it as a separator and gets stems that sum to the mix | 1–2 weeks (after M2)       |
+| S0  | App on the shared core: chunked processing, server, CLI, page, with a placeholder model     | Song Deck can use it as a separator and gets stems that sum to the mix | Done (0.7.0)               |
 | S1  | Data pipeline: render export, Slakh, remixing, augmentation; first vocal data sourced       | A training set with vocals you have the rights to                      | 3–6 weeks, mostly sourcing |
 | S2  | Vocal/instrumental model                                                                    | Competitive with Demucs two-stem on the owned real test set            | 3–4 weeks                  |
 | S3  | Release 0.1: binaries (CPU and GPU builds), model download with checksums, Song Deck preset | Song Deck's one-click install works, and it runs as a combine member   | about 1 week               |
 | S4  | Four-stem model                                                                             | Adds measurable value in Song Deck's **Combine their stems**           | 4–6 weeks                  |
 | S5  | Six stems and finer splits on request                                                       | Song Deck's staged separation can use it for drum and vocal splits     | ongoing                    |
+
+**S0 as built (0.7.0).** `backtrack-explode` separates on the command line, serves `POST /separate`,
+`GET /info` (`stems`, `on_request_stems`), `GET /health` and `POST /cancel` on port 8827, and
+serves the page in the blast-zone theme. Chunks of 20 s overlap by 1 s and crossfade; a
+2048-point STFT goes to the model; the residual is shared out by power, so the stems sum to the
+mix (checked in the unit tests and the smoke test, and through Song Deck's own adapter). Passes
+are plain, flip + swap, flip and swap. The placeholder model uses masks from
+harmonic/percussive median filtering, the low band and centred bins, for vocals, drums, bass and
+other, with instrumental on request. Not in S0: GGUF separation models (S2), GPU devices,
+releases (S3). See [apps/explode/README.md](../../apps/explode/README.md).
 
 ## Ideas for later
 

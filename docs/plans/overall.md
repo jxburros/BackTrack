@@ -120,7 +120,7 @@ M3 is done (2026-10-19): BackTrack v0.1.0 is released and Song Deck installs it 
   transcription requests, and `eval:datasets` for E-GMD, its own datasets and several
   transcribers side by side.
 - Released: BackTrack v0.1.0 (CPU builds for linux-x64, darwin-arm64, darwin-x64 and win32-x64,
-  and the drum model), pinned in Song Deck's binary recipe (now at v0.4.0).
+  and the drum model), pinned in Song Deck's binary recipe (now at v0.6.1).
 - Left open: T2's "done when" asks for real recordings (E-GMD and the real test set are not
   scored yet), and GPU builds (Vulkan, Metal) wait for a CPU-fallback scheduler.
 
@@ -129,10 +129,12 @@ melody models, trained at home from the TRAIN tab with a new drum model beside t
 ([weights/](../../weights/README.md)). On 60 unseen rendered songs per part, against Song Deck's
 built-in transcription: bass note F 0.47 against 0.21, instrumental leads 0.92 against 0.76, sung
 leads (Song Deck's guide singer) 0.68 against 0.37, drums 0.85 against 0.53. Song Deck bundles
-all three as model plugins. Left: releasing them (0.6.0), after which Song Deck moves its pin.
+all three as model plugins. Released in v0.6.1 (2026-10-24); Song Deck's one-click install pins
+it with all three models and vendors its WebAssembly build.
 
-M5 can start any time, but its training data (especially vocals) needs the longest lead time, so
-start sourcing data early.
+M5 has started: Explode S0 is built (0.7.0), the app on the shared core with a placeholder model,
+which Song Deck can use as a separator through its existing adapter. Its training data
+(especially vocals) needs the longest lead time, so start sourcing data early (S1).
 
 ## Measuring progress: the round-trip lab (done, M0)
 
